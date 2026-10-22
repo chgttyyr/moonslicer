@@ -8,7 +8,13 @@ import {
 // Values
 pub fn generate_perimeters(Polygon2, Int, Double) -> (Array[Polygon2], Polygon2?)
 
+pub fn generate_rectilinear_infill(Polygon2, Double, Double, Double) -> Array[Segment2]
+
 pub fn intersect_triangle_plane(Triangle3, Double) -> Segment2?
+
+pub fn math_cos(Double) -> Double
+
+pub fn math_sin(Double) -> Double
 
 pub fn offset_polygon_inward(Polygon2, Double, miter_limit? : Double) -> Polygon2?
 
