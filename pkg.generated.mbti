@@ -1,0 +1,104 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "chgttyyr/moonslicer"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) struct BBox3 {
+  min : Vec3
+  max : Vec3
+} derive(Eq, @debug.Debug)
+pub fn BBox3::center(Self) -> Vec3
+pub fn BBox3::depth(Self) -> Double
+pub fn BBox3::height(Self) -> Double
+pub fn BBox3::new(Vec3, Vec3) -> Self
+pub fn BBox3::width(Self) -> Double
+
+pub(all) struct Polygon2 {
+  points : Array[Vec2]
+} derive(Eq, @debug.Debug)
+pub fn Polygon2::area(Self) -> Double
+pub fn Polygon2::contains_point(Self, Vec2) -> Bool
+pub fn Polygon2::ensure_ccw(Self) -> Self
+pub fn Polygon2::ensure_cw(Self) -> Self
+pub fn Polygon2::is_ccw(Self) -> Bool
+pub fn Polygon2::new(Array[Vec2]) -> Self
+pub fn Polygon2::reverse(Self) -> Self
+
+pub(all) struct Segment2 {
+  p1 : Vec2
+  p2 : Vec2
+} derive(Eq, @debug.Debug)
+pub fn Segment2::direction(Self) -> Vec2
+pub fn Segment2::length(Self) -> Double
+pub fn Segment2::new(Vec2, Vec2) -> Self
+
+pub(all) struct SlicerConfig {
+  layer_height : Double
+  initial_layer_height : Double
+  line_width : Double
+  wall_count : Int
+  infill_density : Double
+  infill_angle : Double
+  filament_diameter : Double
+  nozzle_temp : Int
+  bed_temp : Int
+  print_speed : Double
+  travel_speed : Double
+  retract_distance : Double
+  retract_speed : Double
+} derive(@debug.Debug)
+pub fn SlicerConfig::default() -> Self
+
+pub(all) enum SlicerError {
+  InvalidStl(String)
+  IoError(String)
+  EmptyMesh
+  SlicingFailed(String)
+} derive(Eq, @debug.Debug)
+pub impl Show for SlicerError
+
+pub(all) struct Vec2 {
+  x : Double
+  y : Double
+} derive(Eq, @debug.Debug)
+pub fn Vec2::add(Self, Self) -> Self
+pub fn Vec2::cross(Self, Self) -> Double
+pub fn Vec2::distance(Self, Self) -> Double
+pub fn Vec2::distance_sq(Self, Self) -> Double
+pub fn Vec2::dot(Self, Self) -> Double
+pub fn Vec2::left_normal(Self) -> Self
+pub fn Vec2::length(Self) -> Double
+pub fn Vec2::length_sq(Self) -> Double
+pub fn Vec2::new(Double, Double) -> Self
+pub fn Vec2::normalize(Self) -> Self
+pub fn Vec2::scale(Self, Double) -> Self
+pub fn Vec2::sub(Self, Self) -> Self
+pub fn Vec2::zero() -> Self
+
+pub(all) struct Vec3 {
+  x : Double
+  y : Double
+  z : Double
+} derive(Eq, @debug.Debug)
+pub fn Vec3::add(Self, Self) -> Self
+pub fn Vec3::cross(Self, Self) -> Self
+pub fn Vec3::distance(Self, Self) -> Double
+pub fn Vec3::dot(Self, Self) -> Double
+pub fn Vec3::length(Self) -> Double
+pub fn Vec3::length_sq(Self) -> Double
+pub fn Vec3::new(Double, Double, Double) -> Self
+pub fn Vec3::normalize(Self) -> Self
+pub fn Vec3::scale(Self, Double) -> Self
+pub fn Vec3::sub(Self, Self) -> Self
+pub fn Vec3::zero() -> Self
+
+// Type aliases
+
+// Traits

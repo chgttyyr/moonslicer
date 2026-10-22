@@ -12,7 +12,10 @@ pub(all) enum SlicerError {
 } derive(Debug, Eq)
 
 ///|
-pub impl Show for SlicerError with output(self : SlicerError, logger : &Logger) -> Unit {
+pub impl Show for SlicerError with fn output(
+  self : SlicerError,
+  logger : &Logger,
+) -> Unit {
   match self {
     InvalidStl(s) => logger.write_string("InvalidStl(" + s + ")")
     IoError(s) => logger.write_string("IoError(" + s + ")")

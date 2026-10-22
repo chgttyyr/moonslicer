@@ -1,4 +1,4 @@
-warnings = "-0079"
+warnings = "-0079 -0029"
 
 import {
   "moonbitlang/x/fs" @fs,
