@@ -18,6 +18,8 @@ pub fn generate_perimeters(Polygon2, Int, Double) -> (Array[Polygon2], Polygon2?
 
 pub fn generate_rectilinear_infill(Polygon2, Double, Double, Double) -> Array[Segment2]
 
+pub fn get_mesh_slice_stats(Mesh3, config? : SlicerConfig) -> MeshSliceStats
+
 pub fn intersect_triangle_plane(Triangle3, Double) -> Segment2?
 
 pub fn math_cos(Double) -> Double
@@ -35,6 +37,10 @@ pub fn read_u32_le(Bytes, Int) -> Int
 pub fn slice_mesh(Mesh3, SlicerConfig) -> Array[SliceLayer]
 
 pub fn slice_mesh_at_z(Mesh3, Double) -> SliceLayer
+
+pub fn slice_mesh_to_gcode(Mesh3, config? : SlicerConfig, bed_center_x? : Double, bed_center_y? : Double) -> GCodeResult
+
+pub fn slice_stl_bytes_to_gcode(Bytes, config? : SlicerConfig, bed_center_x? : Double, bed_center_y? : Double) -> Result[GCodeResult, SlicerError]
 
 pub fn stitch_segments_into_loops(Array[Segment2], tolerance? : Double) -> Array[Polygon2]
 
@@ -64,6 +70,16 @@ pub(all) struct Mesh3 {
 } derive(Eq, @debug.Debug)
 pub fn Mesh3::center_to_bed(Self) -> Self
 pub fn Mesh3::from_triangles(Array[Triangle3]) -> Self
+
+pub(all) struct MeshSliceStats {
+  triangle_count : Int
+  width : Double
+  depth : Double
+  height : Double
+  estimated_layers : Int
+  min_z : Double
+  max_z : Double
+} derive(@debug.Debug)
 
 pub(all) struct Polygon2 {
   points : Array[Vec2]
