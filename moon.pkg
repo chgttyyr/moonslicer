@@ -1,9 +1,9 @@
-warnings = "-0079 -0029"
+warnings = "-79-29"
 
 import {
-  "moonbitlang/x/fs" @fs,
+  "moonbitlang/x/fs",
 } for "test"
 
 import {
-  "moonbitlang/x/fs" @fs,
+  "moonbitlang/x/fs",
 } for "wbtest"

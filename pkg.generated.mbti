@@ -6,6 +6,11 @@ import {
 }
 
 // Values
+pub fn parse_stl(Bytes) -> Result[Mesh3, SlicerError]
+
+pub fn read_f32_le(Bytes, Int) -> Double
+
+pub fn read_u32_le(Bytes, Int) -> Int
 
 // Errors
 
@@ -19,6 +24,13 @@ pub fn BBox3::depth(Self) -> Double
 pub fn BBox3::height(Self) -> Double
 pub fn BBox3::new(Vec3, Vec3) -> Self
 pub fn BBox3::width(Self) -> Double
+
+pub(all) struct Mesh3 {
+  triangles : Array[Triangle3]
+  bounds : BBox3
+} derive(Eq, @debug.Debug)
+pub fn Mesh3::center_to_bed(Self) -> Self
+pub fn Mesh3::from_triangles(Array[Triangle3]) -> Self
 
 pub(all) struct Polygon2 {
   points : Array[Vec2]
@@ -63,6 +75,16 @@ pub(all) enum SlicerError {
   SlicingFailed(String)
 } derive(Eq, @debug.Debug)
 pub impl Show for SlicerError
+
+pub(all) struct Triangle3 {
+  normal : Vec3
+  v1 : Vec3
+  v2 : Vec3
+  v3 : Vec3
+} derive(Eq, @debug.Debug)
+pub fn Triangle3::max_z(Self) -> Double
+pub fn Triangle3::min_z(Self) -> Double
+pub fn Triangle3::new(Vec3, Vec3, Vec3, Vec3) -> Self
 
 pub(all) struct Vec2 {
   x : Double
