@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoonSlicer Toolpath Visualizer</title>
+  <style>
+    :root {
+      --bg: #12141a;
+      --panel: #1a1e27;
+      --border: #2c3345;
+      --text: #e2e8f0;
+      --muted: #8b9bb4;
+      --accent: #3b82f6;
+      --wall: #ef4444;
+      --inner-wall: #10b981;
+      --infill: #f59e0b;
+      --travel: #475569;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 340px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 0.68rem;
+      background: #2563eb33;
+      color: #60a5fa;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid #3b82f655;
+    }
+    .card {
+      background: #12151d;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 0.85rem;
+    }
+    .card h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 4px 0;
+    }
+    .stat-value {
+      font-family: monospace;
+      color: #93c5fd;
+    }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn:hover { background: #2563eb; }
+    .btn-secondary {
+      background: #232a3b;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: #2f384d; }
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .legend {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.8rem;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+    #viewport-container {
+      flex: 1;
+      position: relative;
+      background: #0d0f14;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .file-drop {
+      border: 2px dashed var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .file-drop:hover { border-color: var(--accent); color: var(--text); }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <div>
+      <h1>MoonSlicer <span class="badge">Visualizer</span></h1>
+      <p style="font-size: 0.78rem; color: var(--muted); margin-top: 4px;">Interactive Toolpath & G-code Inspector</p>
+    </div>
+
+    <div class="file-drop" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <input type="file" id="file-input" accept=".gcode" style="display: none;">
+      <div>Drag & drop .gcode file or <strong>browse</strong></div>
+    </div>
+
+    <div class="card">
+      <h3>Layer Navigation</h3>
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Current Layer: <strong id="layer-num-display">0 / 0</strong></span>
+          <span id="layer-z-display" style="font-family: monospace; color: #93c5fd;">Z: 0.00 mm</span>
+        </div>
+        <input type="range" id="layer-slider" min="0" max="0" value="0">
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 10px;">
+        <button class="btn btn-secondary" style="flex: 1;" id="btn-prev">Previous</button>
+        <button class="btn btn-secondary" style="flex: 1;" id="btn-next">Next</button>
+        <button class="btn" style="flex: 1;" id="btn-play">Auto Play</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Slicing Metrics</h3>
+      <div class="stat-row"><span>Total Layers:</span><span class="stat-value" id="stat-total-layers">-</span></div>
+      <div class="stat-row"><span>Layer Height:</span><span class="stat-value" id="stat-layer-h">-</span></div>
+      <div class="stat-row"><span>Total Moves:</span><span class="stat-value" id="stat-moves">-</span></div>
+      <div class="stat-row"><span>Est. Filament:</span><span class="stat-value" id="stat-filament">-</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Toolpath Legend</h3>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background: var(--wall);"></div><span>Outer Wall (Perimeter 0)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--inner-wall);"></div><span>Inner Wall (Perimeter 1+)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--infill);"></div><span>Infill Lines (Rectilinear)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--travel);"></div><span>Travel Move (G0)</span></div>
+      </div>
+      <div style="margin-top: 10px;">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; cursor: pointer;">
+          <input type="checkbox" id="chk-travel" checked> Show Travel Moves
+        </label>
+      </div>
+    </div>
+
+    <button class="btn btn-secondary" id="btn-sample">Load Calibration Cube Demo</button>
+  </div>
+
+  <div id="viewport-container">
+    <canvas id="view-canvas"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('view-canvas');
+    const ctx = canvas.getContext('2d');
+    const slider = document.getElementById('layer-slider');
+    const layerNumDisplay = document.getElementById('layer-num-display');
+    const layerZDisplay = document.getElementById('layer-z-display');
+    const chkTravel = document.getElementById('chk-travel');
+
+    let layers = [];
+    let currentLayerIdx = 0;
+    let isPlaying = false;
+    let playInterval = null;
+
+    // Viewport transforms (Pan & Zoom)
+    let zoom = 2.5;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+
+    function resize() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      if (panX === 0 && panY === 0) {
+        panX = canvas.width / 2;
+        panY = canvas.height / 2;
+      }
+      render();
+    }
+    window.addEventListener('resize', resize);
+
+    function parseGCode(text) {
+      const lines = text.split('\n');
+      const parsedLayers = [];
+      let curLayer = { idx: 0, z: 0.0, moves: [] };
+      let lastX = 100.0, lastY = 100.0, lastZ = 0.0, lastE = 0.0;
+      let layerCount = 0;
+      let totalFilament = 0.0;
+
+      for (let rawLine of lines) {
+        let line = rawLine.trim();
+        if (line.startsWith('; LAYER:')) {
+          if (curLayer.moves.length > 0) {
+            parsedLayers.push(curLayer);
+          }
+          const idx = parseInt(line.split(':')[1].trim(), 10) || parsedLayers.length;
+          curLayer = { idx, z: lastZ, moves: [] };
+          layerCount++;
+          continue;
+        }
+
+        // Parse coordinates
+        let isG0 = line.startsWith('G0');
+        let isG1 = line.startsWith('G1');
+        if (isG0 || isG1) {
+          let x = lastX, y = lastY, z = lastZ, e = lastE;
+          let hasX = false, hasY = false, hasZ = false, hasE = false;
+
+          const parts = line.split(';');
+          const comment = parts[1] || '';
+          const tokens = parts[0].trim().split(/\s+/);
+
+          for (let tok of tokens) {
+            if (tok.startsWith('X')) { x = parseFloat(tok.slice(1)); hasX = true; }
+            if (tok.startsWith('Y')) { y = parseFloat(tok.slice(1)); hasY = true; }
+            if (tok.startsWith('Z')) { z = parseFloat(tok.slice(1)); hasZ = true; }
+            if (tok.startsWith('E')) { e = parseFloat(tok.slice(1)); hasE = true; }
+          }
+
+          if (hasZ) {
+            lastZ = z;
+            curLayer.z = z;
+          }
+
+          let type = 'travel';
+          if (isG1 && hasE && e > lastE) {
+            if (comment.includes('wall 0')) type = 'outer-wall';
+            else if (comment.includes('wall')) type = 'inner-wall';
+            else if (comment.includes('infill')) type = 'infill';
+            else type = 'outer-wall';
+            totalFilament = e;
+          }
+
+          curLayer.moves.push({
+            type,
+            x1: lastX, y1: lastY,
+            x2: x, y2: y,
+            z: lastZ
+          });
+
+          lastX = x; lastY = y;
+          if (hasE) lastE = e;
+        }
+      }
+
+      if (curLayer.moves.length > 0) {
+        parsedLayers.push(curLayer);
+      }
+
+      layers = parsedLayers;
+      document.getElementById('stat-total-layers').textContent = layers.length;
+      document.getElementById('stat-filament').textContent = totalFilament.toFixed(1) + ' mm';
+      if (layers.length > 1) {
+        const h = (layers[layers.length - 1].z - layers[0].z) / (layers.length - 1);
+        document.getElementById('stat-layer-h').textContent = h.toFixed(2) + ' mm';
+      }
+
+      slider.max = Math.max(0, layers.length - 1);
+      slider.value = 0;
+      setLayer(0);
+    }
+
+    function setLayer(idx) {
+      if (layers.length === 0) return;
+      currentLayerIdx = Math.max(0, Math.min(layers.length - 1, idx));
+      slider.value = currentLayerIdx;
+      const l = layers[currentLayerIdx];
+      layerNumDisplay.textContent = `${currentLayerIdx + 1} / ${layers.length}`;
+      layerZDisplay.textContent = `Z: ${l.z.toFixed(2)} mm`;
+      document.getElementById('stat-moves').textContent = l.moves.length;
+      render();
+    }
+
+    function render() {
+      ctx.fillStyle = '#0d0f14';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(panX, panY);
+      ctx.scale(zoom, -zoom); // Invert Y for 3D bed coordinate system
+
+      // Draw Print Bed (200x200mm centered at 100,100)
+      ctx.strokeStyle = '#1e2638';
+      ctx.lineWidth = 1 / zoom;
+      ctx.strokeRect(0, 0, 200, 200);
+
+      // Grid lines every 20mm
+      ctx.strokeStyle = '#161d2d';
+      for (let x = 0; x <= 200; x += 20) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0); ctx.lineTo(x, 200);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= 200; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, y); ctx.lineTo(200, y);
+        ctx.stroke();
+      }
+
+      if (layers.length > 0 && layers[currentLayerIdx]) {
+        const moves = layers[currentLayerIdx].moves;
+        const showTravel = chkTravel.checked;
+
+        for (let m of moves) {
+          if (m.type === 'travel') {
+            if (!showTravel) continue;
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 0.5 / zoom;
+            ctx.setLineDash([2 / zoom, 2 / zoom]);
+          } else {
+            ctx.setLineDash([]);
+            if (m.type === 'outer-wall') {
+              ctx.strokeStyle = '#ef4444';
+              ctx.lineWidth = 0.45;
+            } else if (m.type === 'inner-wall') {
+              ctx.strokeStyle = '#10b981';
+              ctx.lineWidth = 0.42;
+            } else if (m.type === 'infill') {
+              ctx.strokeStyle = '#f59e0b';
+              ctx.lineWidth = 0.4;
+            }
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(m.x1, m.y1);
+          ctx.lineTo(m.x2, m.y2);
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // Event listeners
+    slider.addEventListener('input', e => setLayer(parseInt(e.target.value, 10)));
+    document.getElementById('btn-prev').addEventListener('click', () => setLayer(currentLayerIdx - 1));
+    document.getElementById('btn-next').addEventListener('click', () => setLayer(currentLayerIdx + 1));
+    chkTravel.addEventListener('change', render);
+
+    document.getElementById('btn-play').addEventListener('click', function() {
+      isPlaying = !isPlaying;
+      this.textContent = isPlaying ? 'Pause' : 'Auto Play';
+      if (isPlaying) {
+        playInterval = setInterval(() => {
+          if (currentLayerIdx >= layers.length - 1) {
+            setLayer(0);
+          } else {
+            setLayer(currentLayerIdx + 1);
+          }
+        }, 120);
+      } else {
+        clearInterval(playInterval);
+      }
+    });
+
+    // Pan & Zoom
+    canvas.addEventListener('mousedown', e => {
+      isDragging = true;
+      dragStartX = e.clientX - panX;
+      dragStartY = e.clientY - panY;
+    });
+    window.addEventListener('mousemove', e => {
+      if (isDragging) {
+        panX = e.clientX - dragStartX;
+        panY = e.clientY - dragStartY;
+        render();
+      }
+    });
+    window.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 0.87;
+      zoom *= factor;
+      render();
+    });
+
+    // Drag-and-drop & File upload
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    function handleFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => parseGCode(e.target.result);
+      reader.readAsText(file);
+    }
+
+    fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#3b82f6'; });
+    dropZone.addEventListener('dragleave', () => dropZone.style.borderColor = '');
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.style.borderColor = '';
+      if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+    });
+
+    // Demo calibration cube G-code
+    function loadSampleDemo() {
+      let gcode = "; Generated by MoonSlicer Demo\nG21\nG90\n";
+      for (let l = 0; l < 15; l++) {
+        let z = (0.3 + l * 0.2).toFixed(3);
+        gcode += `; LAYER: ${l}\nG0 Z${z}\n`;
+        // Outer wall (square 90,90 to 110,110)
+        gcode += `G0 X90.000 Y90.000\n`;
+        gcode += `G1 X110.000 Y90.000 E${l * 10 + 2} ; wall 0\n`;
+        gcode += `G1 X110.000 Y110.000 E${l * 10 + 4} ; wall 0\n`;
+        gcode += `G1 X90.000 Y110.000 E${l * 10 + 6} ; wall 0\n`;
+        gcode += `G1 X90.000 Y90.000 E${l * 10 + 8} ; wall 0\n`;
+
+        // Inner wall
+        gcode += `G0 X90.400 Y90.400\n`;
+        gcode += `G1 X109.600 Y90.400 E${l * 10 + 9} ; wall 1\n`;
+        gcode += `G1 X109.600 Y109.600 E${l * 10 + 10} ; wall 1\n`;
+        gcode += `G1 X90.400 Y109.600 E${l * 10 + 11} ; wall 1\n`;
+        gcode += `G1 X90.400 Y90.400 E${l * 10 + 12} ; wall 1\n`;
+
+        // Infill lines
+        for (let y = 92; y <= 108; y += 2) {
+          gcode += `G0 X91.000 Y${y.toFixed(3)}\n`;
+          gcode += `G1 X109.000 Y${y.toFixed(3)} E${l * 10 + 13 + y/10} ; infill\n`;
+        }
+      }
+      parseGCode(gcode);
+    }
+    document.getElementById('btn-sample').addEventListener('click', loadSampleDemo);
+
+    resize();
+    loadSampleDemo();
+  </script>
+</body>
+</html>
