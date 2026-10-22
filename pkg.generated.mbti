@@ -6,6 +6,14 @@ import {
 }
 
 // Values
+pub fn calculate_delta_e(Double, Double, Double, Double) -> Double
+
+pub fn calculate_extrusion_area(Double, Double) -> Double
+
+pub fn format_f3(Double) -> String
+
+pub fn generate_gcode(Array[SliceLayer], SlicerConfig, bed_center_x? : Double, bed_center_y? : Double) -> GCodeResult
+
 pub fn generate_perimeters(Polygon2, Int, Double) -> (Array[Polygon2], Polygon2?)
 
 pub fn generate_rectilinear_infill(Polygon2, Double, Double, Double) -> Array[Segment2]
@@ -42,6 +50,13 @@ pub fn BBox3::depth(Self) -> Double
 pub fn BBox3::height(Self) -> Double
 pub fn BBox3::new(Vec3, Vec3) -> Self
 pub fn BBox3::width(Self) -> Double
+
+pub(all) struct GCodeResult {
+  gcode : String
+  total_filament_mm : Double
+  total_layers : Int
+  estimated_print_time_sec : Double
+} derive(@debug.Debug)
 
 pub(all) struct Mesh3 {
   triangles : Array[Triangle3]
