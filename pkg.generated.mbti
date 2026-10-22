@@ -6,11 +6,19 @@ import {
 }
 
 // Values
+pub fn intersect_triangle_plane(Triangle3, Double) -> Segment2?
+
 pub fn parse_stl(Bytes) -> Result[Mesh3, SlicerError]
 
 pub fn read_f32_le(Bytes, Int) -> Double
 
 pub fn read_u32_le(Bytes, Int) -> Int
+
+pub fn slice_mesh(Mesh3, SlicerConfig) -> Array[SliceLayer]
+
+pub fn slice_mesh_at_z(Mesh3, Double) -> SliceLayer
+
+pub fn stitch_segments_into_loops(Array[Segment2], tolerance? : Double) -> Array[Polygon2]
 
 // Errors
 
@@ -50,6 +58,11 @@ pub(all) struct Segment2 {
 pub fn Segment2::direction(Self) -> Vec2
 pub fn Segment2::length(Self) -> Double
 pub fn Segment2::new(Vec2, Vec2) -> Self
+
+pub(all) struct SliceLayer {
+  z : Double
+  polygons : Array[Polygon2]
+} derive(@debug.Debug)
 
 pub(all) struct SlicerConfig {
   layer_height : Double
