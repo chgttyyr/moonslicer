@@ -29,3 +29,33 @@ test "infill/axis_aligned_and_diagonal_scanline" {
   let zero = generate_rectilinear_infill(square, 0.0, 0.4, 45.0)
   inspect(zero.length(), content="0")
 }
+
+///|
+test "infill/expolygon_hole_clipping" {
+  // Outer square 100x100
+  let outer = Polygon2::new([
+    Vec2::new(0.0, 0.0),
+    Vec2::new(100.0, 0.0),
+    Vec2::new(100.0, 100.0),
+    Vec2::new(0.0, 100.0),
+  ])
+  // Hole in middle: 30x30 to 70x70
+  let hole = Polygon2::new([
+    Vec2::new(30.0, 30.0),
+    Vec2::new(70.0, 30.0),
+    Vec2::new(70.0, 70.0),
+    Vec2::new(30.0, 70.0),
+  ])
+  let expoly = ExPolygon::new(outer, holes=[hole])
+
+  // Horizontal infill at 0 deg, spacing = 10mm (density = 0.04, line_width = 0.4)
+  let lines = generate_expolygon_rectilinear_infill(expoly, 0.04, 0.4, 0.0)
+  inspect(lines.length() > 0, content="true")
+
+  // For any generated segment, its midpoint must NOT be inside the hole
+  for seg in lines {
+    let mid = seg.p1.add(seg.p2).scale(0.5)
+    inspect(hole.contains_point(mid), content="false")
+    inspect(expoly.contains_point(mid), content="true")
+  }
+}

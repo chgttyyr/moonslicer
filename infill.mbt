@@ -131,3 +131,134 @@ pub fn generate_rectilinear_infill(
 
   infill_segments
 }
+
+///|
+/// Generate rectilinear infill lines for an ExPolygon (contour with holes).
+/// Automatically clips infill lines across all interior holes.
+pub fn generate_expolygon_rectilinear_infill(
+  expoly : ExPolygon,
+  density : Double,
+  line_width : Double,
+  angle_deg : Double,
+) -> Array[Segment2] {
+  let infill_segments : Array[Segment2] = []
+  if density <= 0.001 || expoly.contour.points.length() < 3 {
+    return infill_segments
+  }
+
+  let spacing = line_width / density
+
+  let (cos_a, sin_a) = if (angle_deg - 0.0).abs() < 1.0e-3 {
+    (1.0, 0.0)
+  } else if (angle_deg - 90.0).abs() < 1.0e-3 {
+    (0.0, 1.0)
+  } else if (angle_deg - 45.0).abs() < 1.0e-3 {
+    (0.7071067811865476, 0.7071067811865476)
+  } else if (angle_deg - 135.0).abs() < 1.0e-3 {
+    (-0.7071067811865476, 0.7071067811865476)
+  } else {
+    let rad = angle_deg * (PI / 180.0)
+    (math_cos(rad), math_sin(rad))
+  }
+
+  let dir = Vec2::new(cos_a, sin_a)
+  let norm = Vec2::new(-sin_a, cos_a)
+
+  // Bounds from outer contour
+  let cpts = expoly.contour.points
+  let cn = cpts.length()
+  let mut min_proj = cpts[0].dot(norm)
+  let mut max_proj = min_proj
+
+  for i = 1; i < cn; i = i + 1 {
+    let proj = cpts[i].dot(norm)
+    if proj < min_proj {
+      min_proj = proj
+    }
+    if proj > max_proj {
+      max_proj = proj
+    }
+  }
+
+  let mut d = min_proj + spacing * 0.5
+  while d < max_proj {
+    let hits : Array[InfillHit] = []
+
+    // 1. Intersect scanline with outer contour edges
+    for i = 0; i < cn; i = i + 1 {
+      let a = cpts[i]
+      let b = cpts[(i + 1) % cn]
+      let proj_a = a.dot(norm)
+      let proj_b = b.dot(norm)
+      let diff = proj_b - proj_a
+      if diff.abs() > 1.0e-9 {
+        let t = (d - proj_a) / diff
+        if t >= 0.0 && t <= 1.0 {
+          let ix = a.x + t * (b.x - a.x)
+          let iy = a.y + t * (b.y - a.y)
+          let pt = Vec2::new(ix, iy)
+          let s = pt.dot(dir)
+          hits.push({ s, pt, })
+        }
+      }
+    }
+
+    // 2. Intersect scanline with all interior hole edges
+    for hole in expoly.holes {
+      let hpts = hole.points
+      let hn = hpts.length()
+      for i = 0; i < hn; i = i + 1 {
+        let a = hpts[i]
+        let b = hpts[(i + 1) % hn]
+        let proj_a = a.dot(norm)
+        let proj_b = b.dot(norm)
+        let diff = proj_b - proj_a
+        if diff.abs() > 1.0e-9 {
+          let t = (d - proj_a) / diff
+          if t >= 0.0 && t <= 1.0 {
+            let ix = a.x + t * (b.x - a.x)
+            let iy = a.y + t * (b.y - a.y)
+            let pt = Vec2::new(ix, iy)
+            let s = pt.dot(dir)
+            hits.push({ s, pt, })
+          }
+        }
+      }
+    }
+
+    // Sort hits along scanline direction
+    hits.sort_by(fn(h1, h2) { h1.s.compare(h2.s) })
+
+    // Deduplicate close hits (e.g. vertices)
+    let clean_hits : Array[InfillHit] = []
+    for h in hits {
+      let mut dup = false
+      if clean_hits.length() > 0 {
+        let last = clean_hits[clean_hits.length() - 1]
+        if (h.s - last.s).abs() < 1.0e-5 {
+          dup = true
+        }
+      }
+      if !dup {
+        clean_hits.push(h)
+      }
+    }
+
+    // Pair up hits by parity and validate that segment midpoint is inside the ExPolygon
+    let num_pairs = clean_hits.length() / 2
+    for p = 0; p < num_pairs; p = p + 1 {
+      let p1 = clean_hits[p * 2].pt
+      let p2 = clean_hits[p * 2 + 1].pt
+      if p1.distance(p2) > 1.0e-3 {
+        let mid = p1.add(p2).scale(0.5)
+        if expoly.contains_point(mid) {
+          infill_segments.push(Segment2::new(p1, p2))
+        }
+      }
+    }
+
+    d = d + spacing
+  }
+
+  infill_segments
+}
