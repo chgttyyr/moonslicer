@@ -26,7 +26,7 @@ jobs:
         run: |
           moon check
 
-      - name: Run Test Suite
+      - name: Run Test Suite (21 Tests)
         run: |
           moon test
 
@@ -38,4 +38,7 @@ jobs:
         run: |
           moon run cmd/main -- help
           moon run cmd/main -- info -i fixtures/calibration_cube_ascii.stl
-          moon run cmd/main -- slice -i fixtures/calibration_cube_ascii.stl -o ci_test.gcode --layer-height 0.4 --density 0.1
+          moon run cmd/main -- info -i fixtures/hollow_box_with_hole.stl
+          moon run cmd/main -- slice -i fixtures/calibration_cube_ascii.stl -o ci_test_cube.gcode --layer-height 0.4 --density 0.1
+          moon run cmd/main -- slice -i fixtures/hollow_box_with_hole.stl -o ci_test_hollow.gcode --layer-height 0.5 --walls 2 --bottom-solid 2 --top-solid 2
+          moon run cmd/main -- slice -i fixtures/two_pillars_multi_island.stl -o ci_test_pillars.gcode --layer-height 0.5
