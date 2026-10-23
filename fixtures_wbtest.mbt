@@ -43,3 +43,66 @@ test "slice calibration cube fixture" {
     _ => inspect(false, content="true")
   }
 }
+
+///|
+test "slice hollow box with hole fixture" {
+  let fixture_path = "fixtures/hollow_box_with_hole.stl"
+  try {
+    let bytes = @fs.read_file_to_bytes(fixture_path)
+    let mesh = parse_stl(bytes).unwrap()
+    let stats = get_mesh_slice_stats(mesh)
+    inspect(stats.triangle_count, content="32")
+    inspect(stats.width, content="30")
+    inspect(stats.height, content="10")
+
+    let mut config = SlicerConfig::default()
+    config = { ..config, layer_height: 1.0, initial_layer_height: 1.0, }
+    let centered = mesh.center_to_bed()
+    let layers = slice_mesh(centered, config)
+
+    // Check layer count: 10mm / 1.0mm = 9 layers sliced
+    inspect(layers.length() > 0, content="true")
+
+    // In each layer, should have 1 ExPolygon with 1 hole
+    let mid_layer = layers[layers.length() / 2]
+    inspect(mid_layer.expolygons.length(), content="1")
+    inspect(mid_layer.expolygons[0].holes.length(), content="1")
+
+    let gcode_res = generate_gcode(layers, config)
+    inspect(gcode_res.gcode.contains("; TYPE: Hole perimeter"), content="true")
+    inspect(gcode_res.gcode.contains("; TYPE: Outer perimeter"), content="true")
+  } catch {
+    _ => inspect(false, content="true")
+  }
+}
+
+///|
+test "slice two pillars multi island fixture" {
+  let fixture_path = "fixtures/two_pillars_multi_island.stl"
+  try {
+    let bytes = @fs.read_file_to_bytes(fixture_path)
+    let mesh = parse_stl(bytes).unwrap()
+    let stats = get_mesh_slice_stats(mesh)
+    inspect(stats.triangle_count, content="24")
+    inspect(stats.width, content="30")
+
+    let mut config = SlicerConfig::default()
+    config = { ..config, layer_height: 1.0, initial_layer_height: 1.0, }
+    let centered = mesh.center_to_bed()
+    let layers = slice_mesh(centered, config)
+
+    inspect(layers.length() > 0, content="true")
+
+    // Each layer should contain 2 distinct islands (two pillars)
+    let mid_layer = layers[layers.length() / 2]
+    inspect(mid_layer.expolygons.length(), content="2")
+    inspect(mid_layer.expolygons[0].holes.length(), content="0")
+    inspect(mid_layer.expolygons[1].holes.length(), content="0")
+
+    let gcode_res = generate_gcode(layers, config)
+    inspect(gcode_res.total_layers, content="9")
+    inspect(gcode_res.total_filament_mm > 0.0, content="true")
+  } catch {
+    _ => inspect(false, content="true")
+  }
+}
