@@ -13,8 +13,10 @@
       --muted: #8b9bb4;
       --accent: #3b82f6;
       --wall: #ef4444;
+      --hole: #f97316;
       --inner-wall: #10b981;
-      --infill: #f59e0b;
+      --solid-infill: #06b6d4;
+      --infill: #eab308;
       --travel: #475569;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,7 +29,7 @@
       overflow: hidden;
     }
     #sidebar {
-      width: 340px;
+      width: 360px;
       background: var(--panel);
       border-right: 1px solid var(--border);
       padding: 20px;
@@ -151,7 +153,7 @@
   <div id="sidebar">
     <div>
       <h1>MoonSlicer <span class="badge">Visualizer</span></h1>
-      <p style="font-size: 0.78rem; color: var(--muted); margin-top: 4px;">Interactive Toolpath & G-code Inspector</p>
+      <p style="font-size: 0.78rem; color: var(--muted); margin-top: 4px;">Interactive Multi-Island & Hole Toolpath Inspector</p>
     </div>
 
     <div class="file-drop" id="drop-zone" onclick="document.getElementById('file-input').click()">
@@ -179,16 +181,19 @@
       <h3>Slicing Metrics</h3>
       <div class="stat-row"><span>Total Layers:</span><span class="stat-value" id="stat-total-layers">-</span></div>
       <div class="stat-row"><span>Layer Height:</span><span class="stat-value" id="stat-layer-h">-</span></div>
+      <div class="stat-row"><span>Layer Surface:</span><span class="stat-value" id="stat-surface" style="color: #67e8f9;">-</span></div>
       <div class="stat-row"><span>Total Moves:</span><span class="stat-value" id="stat-moves">-</span></div>
       <div class="stat-row"><span>Est. Filament:</span><span class="stat-value" id="stat-filament">-</span></div>
     </div>
 
     <div class="card">
-      <h3>Toolpath Legend</h3>
+      <h3>Toolpath Legend (PrusaSlicer Compatible)</h3>
       <div class="legend">
-        <div class="legend-item"><div class="legend-color" style="background: var(--wall);"></div><span>Outer Wall (Perimeter 0)</span></div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--inner-wall);"></div><span>Inner Wall (Perimeter 1+)</span></div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--infill);"></div><span>Infill Lines (Rectilinear)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--wall);"></div><span>Outer Perimeter (Outer Wall)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--hole);"></div><span>Hole Perimeter (Inner Hole Wall)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--inner-wall);"></div><span>Internal Perimeter</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--solid-infill);"></div><span>Top / Bottom Solid Infill</span></div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--infill);"></div><span>Internal Sparse Infill</span></div>
         <div class="legend-item"><div class="legend-color" style="background: var(--travel);"></div><span>Travel Move (G0)</span></div>
       </div>
       <div style="margin-top: 10px;">
@@ -198,7 +203,7 @@
       </div>
     </div>
 
-    <button class="btn btn-secondary" id="btn-sample">Load Calibration Cube Demo</button>
+    <button class="btn btn-secondary" id="btn-sample">Load Hollow Box with Hole Demo</button>
   </div>
 
   <div id="viewport-container">
@@ -241,9 +246,8 @@
     function parseGCode(text) {
       const lines = text.split('\n');
       const parsedLayers = [];
-      let curLayer = { idx: 0, z: 0.0, moves: [] };
+      let curLayer = { idx: 0, z: 0.0, surface: 'Unknown', moves: [] };
       let lastX = 100.0, lastY = 100.0, lastZ = 0.0, lastE = 0.0;
-      let layerCount = 0;
       let totalFilament = 0.0;
 
       for (let rawLine of lines) {
@@ -253,12 +257,15 @@
             parsedLayers.push(curLayer);
           }
           const idx = parseInt(line.split(':')[1].trim(), 10) || parsedLayers.length;
-          curLayer = { idx, z: lastZ, moves: [] };
-          layerCount++;
+          curLayer = { idx, z: lastZ, surface: 'Normal', moves: [] };
           continue;
         }
 
-        // Parse coordinates
+        if (line.startsWith('; LAYER_TYPE:')) {
+          curLayer.surface = line.split(':')[1].trim();
+          continue;
+        }
+
         let isG0 = line.startsWith('G0');
         let isG1 = line.startsWith('G1');
         if (isG0 || isG1) {
@@ -283,9 +290,11 @@
 
           let type = 'travel';
           if (isG1 && hasE && e > lastE) {
-            if (comment.includes('wall 0')) type = 'outer-wall';
-            else if (comment.includes('wall')) type = 'inner-wall';
-            else if (comment.includes('infill')) type = 'infill';
+            if (comment.includes('Outer perimeter')) type = 'outer-wall';
+            else if (comment.includes('Hole perimeter')) type = 'hole-wall';
+            else if (comment.includes('Perimeter') || comment.includes('wall')) type = 'inner-wall';
+            else if (comment.includes('solid infill')) type = 'solid-infill';
+            else if (comment.includes('infill')) type = 'sparse-infill';
             else type = 'outer-wall';
             totalFilament = e;
           }
@@ -326,6 +335,7 @@
       const l = layers[currentLayerIdx];
       layerNumDisplay.textContent = `${currentLayerIdx + 1} / ${layers.length}`;
       layerZDisplay.textContent = `Z: ${l.z.toFixed(2)} mm`;
+      document.getElementById('stat-surface').textContent = l.surface;
       document.getElementById('stat-moves').textContent = l.moves.length;
       render();
     }
@@ -336,7 +346,7 @@
 
       ctx.save();
       ctx.translate(panX, panY);
-      ctx.scale(zoom, -zoom); // Invert Y for 3D bed coordinate system
+      ctx.scale(zoom, -zoom);
 
       // Draw Print Bed (200x200mm centered at 100,100)
       ctx.strokeStyle = '#1e2638';
@@ -371,11 +381,17 @@
             if (m.type === 'outer-wall') {
               ctx.strokeStyle = '#ef4444';
               ctx.lineWidth = 0.45;
+            } else if (m.type === 'hole-wall') {
+              ctx.strokeStyle = '#f97316';
+              ctx.lineWidth = 0.45;
             } else if (m.type === 'inner-wall') {
               ctx.strokeStyle = '#10b981';
               ctx.lineWidth = 0.42;
-            } else if (m.type === 'infill') {
-              ctx.strokeStyle = '#f59e0b';
+            } else if (m.type === 'solid-infill') {
+              ctx.strokeStyle = '#06b6d4';
+              ctx.lineWidth = 0.4;
+            } else if (m.type === 'sparse-infill') {
+              ctx.strokeStyle = '#eab308';
               ctx.lineWidth = 0.4;
             }
           }
@@ -433,7 +449,6 @@
       render();
     });
 
-    // Drag-and-drop & File upload
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
 
@@ -453,30 +468,45 @@
       if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
     });
 
-    // Demo calibration cube G-code
+    // Demo: 30x30 Box with 10x10 hole, with solid bottom and top layers
     function loadSampleDemo() {
-      let gcode = "; Generated by MoonSlicer Demo\nG21\nG90\n";
-      for (let l = 0; l < 15; l++) {
+      let gcode = "; Generated by MoonSlicer PrusaSlicer-Compatible Demo\nG21\nG90\n";
+      const totalL = 20;
+      for (let l = 0; l < totalL; l++) {
         let z = (0.3 + l * 0.2).toFixed(3);
-        gcode += `; LAYER: ${l}\nG0 Z${z}\n`;
-        // Outer wall (square 90,90 to 110,110)
-        gcode += `G0 X90.000 Y90.000\n`;
-        gcode += `G1 X110.000 Y90.000 E${l * 10 + 2} ; wall 0\n`;
-        gcode += `G1 X110.000 Y110.000 E${l * 10 + 4} ; wall 0\n`;
-        gcode += `G1 X90.000 Y110.000 E${l * 10 + 6} ; wall 0\n`;
-        gcode += `G1 X90.000 Y90.000 E${l * 10 + 8} ; wall 0\n`;
+        let sType = (l < 3) ? 'BottomSolid' : ((l >= totalL - 3) ? 'TopSolid' : 'InternalSparse');
+        gcode += `; LAYER: ${l}\n; LAYER_TYPE: ${sType}\nG0 Z${z}\n`;
 
-        // Inner wall
-        gcode += `G0 X90.400 Y90.400\n`;
-        gcode += `G1 X109.600 Y90.400 E${l * 10 + 9} ; wall 1\n`;
-        gcode += `G1 X109.600 Y109.600 E${l * 10 + 10} ; wall 1\n`;
-        gcode += `G1 X90.400 Y109.600 E${l * 10 + 11} ; wall 1\n`;
-        gcode += `G1 X90.400 Y90.400 E${l * 10 + 12} ; wall 1\n`;
+        // 1. Outer perimeter (85 to 115)
+        gcode += `G0 X85.000 Y85.000\n`;
+        gcode += `G1 X115.000 Y85.000 E${l * 12 + 2} ; TYPE: Outer perimeter\n`;
+        gcode += `G1 X115.000 Y115.000 E${l * 12 + 4} ; TYPE: Outer perimeter\n`;
+        gcode += `G1 X85.000 Y115.000 E${l * 12 + 6} ; TYPE: Outer perimeter\n`;
+        gcode += `G1 X85.000 Y85.000 E${l * 12 + 8} ; TYPE: Outer perimeter\n`;
 
-        // Infill lines
-        for (let y = 92; y <= 108; y += 2) {
-          gcode += `G0 X91.000 Y${y.toFixed(3)}\n`;
-          gcode += `G1 X109.000 Y${y.toFixed(3)} E${l * 10 + 13 + y/10} ; infill\n`;
+        // 2. Hole perimeter (95 to 105)
+        gcode += `G0 X95.000 Y95.000\n`;
+        gcode += `G1 X95.000 Y105.000 E${l * 12 + 9} ; TYPE: Hole perimeter\n`;
+        gcode += `G1 X105.000 Y105.000 E${l * 12 + 10} ; TYPE: Hole perimeter\n`;
+        gcode += `G1 X105.000 Y95.000 E${l * 12 + 11} ; TYPE: Hole perimeter\n`;
+        gcode += `G1 X95.000 Y95.000 E${l * 12 + 12} ; TYPE: Hole perimeter\n`;
+
+        // 3. Infill (Solid on top/bottom, Sparse in middle)
+        let step = (sType === 'InternalSparse') ? 3.0 : 0.8;
+        let infillComment = (sType === 'InternalSparse') ? '; TYPE: Internal infill' : '; TYPE: Top solid infill';
+        for (let y = 87; y <= 113; y += step) {
+          if (y >= 94 && y <= 106) {
+            // Cut around hole: left segment
+            gcode += `G0 X87.000 Y${y.toFixed(3)}\n`;
+            gcode += `G1 X93.500 Y${y.toFixed(3)} E${l * 12 + 13 + y/10} ${infillComment}\n`;
+            // right segment
+            gcode += `G0 X106.500 Y${y.toFixed(3)}\n`;
+            gcode += `G1 X113.000 Y${y.toFixed(3)} E${l * 12 + 14 + y/10} ${infillComment}\n`;
+          } else {
+            // Full span across
+            gcode += `G0 X87.000 Y${y.toFixed(3)}\n`;
+            gcode += `G1 X113.000 Y${y.toFixed(3)} E${l * 12 + 15 + y/10} ${infillComment}\n`;
+          }
         }
       }
       parseGCode(gcode);
