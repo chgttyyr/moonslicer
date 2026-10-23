@@ -1,17 +1,19 @@
 ///|
 /// G-Code synthesis and volumetric extrusion calculations for Marlin/RepRap firmware.
+/// Implements PrusaSlicer-compatible multi-island, hole perimeters, and solid infill.
 
 ///|
 /// Formatted G-code result containing the output string and slicing statistics.
 pub(all) struct GCodeResult {
   gcode : String
   total_filament_mm : Double
-  total_layers : Int
+  total_layers : Int32
   estimated_print_time_sec : Double
 } derive(Debug)
 
 ///|
 /// Calculate extrusion cross-sectional area based on nozzle line width and layer height.
+/// Uses stadium cross-section (flat rectangle core with two semi-circular rounded caps).
 pub fn calculate_extrusion_area(
   line_width : Double,
   layer_height : Double,
@@ -66,12 +68,12 @@ pub fn format_f3(val : Double) -> String {
 }
 
 ///|
-/// Synthesize standard Marlin/RepRap G-code from sliced layers.
+/// Synthesize standard Marlin/RepRap G-code from sliced layers with PrusaSlicer feature alignment.
 pub fn generate_gcode(
   layers : Array[SliceLayer],
   config : SlicerConfig,
-  bed_center_x? : Double = 100.0,
-  bed_center_y? : Double = 100.0,
+  bed_center_x~ : Double = 100.0,
+  bed_center_y~ : Double = 100.0,
 ) -> GCodeResult {
   let sb = StringBuilder()
   let mut current_e = 0.0
@@ -83,6 +85,9 @@ pub fn generate_gcode(
   sb.write_string("; Total Layers: \{layers.length()}\n")
   sb.write_string("; Layer Height: \{config.layer_height} mm\n")
   sb.write_string("; Nozzle Line Width: \{config.line_width} mm\n")
+  sb.write_string("; Wall Count: \{config.wall_count}\n")
+  sb.write_string("; Bottom Solid Layers: \{config.bottom_solid_layers}\n")
+  sb.write_string("; Top Solid Layers: \{config.top_solid_layers}\n")
   sb.write_string("; Infill Density: \{config.infill_density * 100.0}%\n")
   sb.write_string("; Target Bed Center: X\{bed_center_x} Y\{bed_center_y}\n")
   sb.write_string("; ==========================================\n\n")
@@ -102,7 +107,8 @@ pub fn generate_gcode(
   sb.write_string("G1 X60.000 Y10.000 E2.000 F1500 ; prime nozzle\n")
   sb.write_string("G92 E0 ; reset extruder\n\n")
 
-  let print_feedrate = (config.print_speed * 60.0).to_int()
+  let default_print_feedrate = (config.print_speed * 60.0).to_int()
+  let solid_infill_feedrate = (config.solid_infill_speed * 60.0).to_int()
   let travel_feedrate = (config.travel_speed * 60.0).to_int()
   let retract_feedrate = (config.retract_speed * 60.0).to_int()
 
@@ -114,40 +120,58 @@ pub fn generate_gcode(
       config.layer_height
     }
 
+    let layer_surface = classify_layer(layer_idx, layers.length(), config)
+
     sb.write_string("; ------------------------------------------\n")
     sb.write_string("; LAYER: \{layer_idx}\n")
     sb.write_string("; Z: \{format_f3(layer_z)}\n")
+    sb.write_string("; LAYER_TYPE: \{layer_surface}\n")
     sb.write_string("G0 Z\{format_f3(layer_z)} F\{travel_feedrate}\n")
 
-    // Determine infill angle for this layer: alternate 45 and 135 degrees
+    // Alternate infill angle 45 and 135 degrees
     let infill_angle = if layer_idx % 2 == 0 {
       config.infill_angle
     } else {
       config.infill_angle + 90.0
     }
 
-    for poly in layer.polygons {
-      // 1. Generate multi-wall perimeters
-      let (walls, infill_bound) = generate_perimeters(
-        poly,
+    let expolys = if !layer.expolygons.is_empty() {
+      layer.expolygons
+    } else {
+      build_expolygons(layer.polygons)
+    }
+
+    for _island_idx, expoly in expolys {
+      let island_surface = classify_island_surface(
+        expoly, layer_idx, layers, config,
+      )
+
+      // 1. Generate multi-wall perimeters (outer contours + hole contours)
+      let perims = generate_expolygon_perimeters(
+        expoly,
         config.wall_count,
         config.line_width,
       )
 
-      for wall_idx, wall in walls {
+      // 1a. Outer walls
+      for wall_idx, wall in perims.outer_walls {
         let pts = wall.points
         if pts.length() < 3 {
           continue
         }
 
-        // Travel move to wall start (with bed center translation)
         let start_x = pts[0].x + bed_center_x
         let start_y = pts[0].y + bed_center_y
         sb.write_string(
           "G0 X\{format_f3(start_x)} Y\{format_f3(start_y)} F\{travel_feedrate}\n",
         )
 
-        // Trace wall
+        let wall_type_label = if wall_idx == 0 {
+          "; TYPE: Outer perimeter"
+        } else {
+          "; TYPE: Perimeter"
+        }
+
         let m = pts.length()
         for k = 0; k < m; k = k + 1 {
           let curr = pts[k]
@@ -166,17 +190,80 @@ pub fn generate_gcode(
           let nx = next.x + bed_center_x
           let ny = next.y + bed_center_y
           sb.write_string(
-            "G1 X\{format_f3(nx)} Y\{format_f3(ny)} E\{format_f3(current_e)} F\{print_feedrate} ; wall \{wall_idx}\n",
+            "G1 X\{format_f3(nx)} Y\{format_f3(ny)} E\{format_f3(current_e)} F\{default_print_feedrate} \{wall_type_label}\n",
           )
         }
       }
 
+      // 1b. Hole walls
+      for _hole_idx, hwalls in perims.hole_walls {
+        for _wall_idx, hwall in hwalls {
+          let pts = hwall.points
+          if pts.length() < 3 {
+            continue
+          }
+
+          let start_x = pts[0].x + bed_center_x
+          let start_y = pts[0].y + bed_center_y
+          sb.write_string(
+            "G0 X\{format_f3(start_x)} Y\{format_f3(start_y)} F\{travel_feedrate}\n",
+          )
+
+          let m = pts.length()
+          for k = 0; k < m; k = k + 1 {
+            let curr = pts[k]
+            let next = pts[(k + 1) % m]
+            let move_dist = curr.distance(next)
+
+            let delta_e = calculate_delta_e(
+              move_dist,
+              config.line_width,
+              current_h,
+              config.filament_diameter,
+            )
+            current_e += delta_e
+            total_time_sec += move_dist / config.print_speed
+
+            let nx = next.x + bed_center_x
+            let ny = next.y + bed_center_y
+            sb.write_string(
+              "G1 X\{format_f3(nx)} Y\{format_f3(ny)} E\{format_f3(current_e)} F\{default_print_feedrate} ; TYPE: Hole perimeter\n",
+            )
+          }
+        }
+      }
+
       // 2. Generate infill lines within infill boundary
-      match infill_bound {
+      match perims.infill_boundary {
         Some(ib) => {
-          let infill_lines = generate_rectilinear_infill(
+          let (density, print_feedrate, speed_val, infill_label) = match
+            island_surface {
+            TopSolid =>
+              (
+                1.0,
+                solid_infill_feedrate,
+                config.solid_infill_speed,
+                "; TYPE: Top solid infill",
+              )
+            BottomSolid =>
+              (
+                1.0,
+                solid_infill_feedrate,
+                config.solid_infill_speed,
+                "; TYPE: Bottom solid infill",
+              )
+            InternalSparse =>
+              (
+                config.infill_density,
+                default_print_feedrate,
+                config.print_speed,
+                "; TYPE: Internal infill",
+              )
+          }
+
+          let infill_lines = generate_expolygon_rectilinear_infill(
             ib,
-            config.infill_density,
+            density,
             config.line_width,
             infill_angle,
           )
@@ -187,7 +274,6 @@ pub fn generate_gcode(
             let p2x = seg.p2.x + bed_center_x
             let p2y = seg.p2.y + bed_center_y
 
-            // Travel to segment start
             sb.write_string(
               "G0 X\{format_f3(p1x)} Y\{format_f3(p1y)} F\{travel_feedrate}\n",
             )
@@ -200,10 +286,10 @@ pub fn generate_gcode(
               config.filament_diameter,
             )
             current_e += delta_e
-            total_time_sec += move_dist / config.print_speed
+            total_time_sec += move_dist / speed_val
 
             sb.write_string(
-              "G1 X\{format_f3(p2x)} Y\{format_f3(p2y)} E\{format_f3(current_e)} F\{print_feedrate} ; infill\n",
+              "G1 X\{format_f3(p2x)} Y\{format_f3(p2y)} E\{format_f3(current_e)} F\{print_feedrate} \{infill_label}\n",
             )
           }
         }

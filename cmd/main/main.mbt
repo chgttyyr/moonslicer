@@ -28,11 +28,16 @@ fn print_usage() -> Unit {
   println("  --initial-height <mm>  First layer height in mm (default: 0.3)")
   println("  --line-width <mm>      Extrusion line width in mm (default: 0.4)")
   println("  --walls <count>        Number of perimeter walls (default: 2)")
+  println("  --bottom-solid <count> Number of bottom solid layers (default: 3)")
+  println("  --top-solid <count>    Number of top solid layers (default: 3)")
   println(
     "  --density <ratio>      Infill density from 0.0 to 1.0 (default: 0.2)",
   )
   println(
     "  --speed <mm/s>         Print movement speed in mm/s (default: 60.0)",
+  )
+  println(
+    "  --solid-speed <mm/s>   Solid infill movement speed in mm/s (default: 40.0)",
   )
   println(
     "  --travel-speed <mm/s>  Travel movement speed in mm/s (default: 120.0)",
@@ -70,7 +75,7 @@ fn parse_double_arg(s : String, default_val : Double) -> Double {
 }
 
 ///|
-fn parse_int_arg(s : String, default_val : Int) -> Int {
+fn parse_int_arg(s : String, default_val : Int32) -> Int32 {
   let mut res = 0
   for c in s {
     let d = c.to_int() - '0'.to_int()
@@ -124,8 +129,11 @@ fn run_slice(args : Array[String]) -> Unit {
   let mut initial_height = 0.3
   let mut line_width = 0.4
   let mut walls = 2
+  let mut bottom_solid = 3
+  let mut top_solid = 3
   let mut density = 0.2
   let mut speed = 60.0
+  let mut solid_speed = 40.0
   let mut travel_speed = 120.0
   let mut bed_x = 100.0
   let mut bed_y = 100.0
@@ -152,11 +160,20 @@ fn run_slice(args : Array[String]) -> Unit {
     } else if arg == "--walls" && i + 1 < n {
       walls = parse_int_arg(args[i + 1], 2)
       i += 2
+    } else if arg == "--bottom-solid" && i + 1 < n {
+      bottom_solid = parse_int_arg(args[i + 1], 3)
+      i += 2
+    } else if arg == "--top-solid" && i + 1 < n {
+      top_solid = parse_int_arg(args[i + 1], 3)
+      i += 2
     } else if arg == "--density" && i + 1 < n {
       density = parse_double_arg(args[i + 1], 0.2)
       i += 2
     } else if arg == "--speed" && i + 1 < n {
       speed = parse_double_arg(args[i + 1], 60.0)
+      i += 2
+    } else if arg == "--solid-speed" && i + 1 < n {
+      solid_speed = parse_double_arg(args[i + 1], 40.0)
       i += 2
     } else if arg == "--travel-speed" && i + 1 < n {
       travel_speed = parse_double_arg(args[i + 1], 120.0)
@@ -185,8 +202,11 @@ fn run_slice(args : Array[String]) -> Unit {
     initial_layer_height: initial_height,
     line_width,
     wall_count: walls,
+    bottom_solid_layers: bottom_solid,
+    top_solid_layers: top_solid,
     infill_density: density,
     print_speed: speed,
+    solid_infill_speed: solid_speed,
     travel_speed,
   }
 

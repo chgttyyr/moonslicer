@@ -30,8 +30,8 @@ test "generate_gcode synthesis" {
     Vec2::new(-10.0, 10.0),
   ]
   let poly = Polygon2::new(sq_pts)
-  let layer0 = SliceLayer::{ z: 0.2, polygons: [poly], }
-  let layer1 = SliceLayer::{ z: 0.4, polygons: [poly], }
+  let layer0 = SliceLayer::new(0.2, [poly])
+  let layer1 = SliceLayer::new(0.4, [poly])
 
   let res = generate_gcode(
     [layer0, layer1],
@@ -51,6 +51,31 @@ test "generate_gcode synthesis" {
   inspect(res.gcode.contains("; LAYER: 1"), content="true")
   inspect(res.gcode.contains("M104 S0 ; turn off hotend"), content="true")
   inspect(res.gcode.contains("M84 ; disable stepper motors"), content="true")
-  inspect(res.gcode.contains("; wall 0"), content="true")
-  inspect(res.gcode.contains("; infill"), content="true")
+  inspect(res.gcode.contains("; TYPE: Outer perimeter"), content="true")
+  inspect(res.gcode.contains("; TYPE: Bottom solid infill"), content="true")
+}
+
+///|
+test "generate_gcode with hole and multi-island" {
+  let config = SlicerConfig::default()
+  // Island with hole: 100x100 square with 40x40 hole
+  let outer = Polygon2::new([
+    Vec2::new(-50.0, -50.0),
+    Vec2::new(50.0, -50.0),
+    Vec2::new(50.0, 50.0),
+    Vec2::new(-50.0, 50.0),
+  ])
+  let hole = Polygon2::new([
+    Vec2::new(-20.0, -20.0),
+    Vec2::new(20.0, -20.0),
+    Vec2::new(20.0, 20.0),
+    Vec2::new(-20.0, 20.0),
+  ])
+  let expoly = ExPolygon::new(outer, holes=[hole])
+  let layer = SliceLayer::new(0.2, [outer, hole], expolygons=[expoly])
+
+  let res = generate_gcode([layer], config)
+  inspect(res.gcode.contains("; TYPE: Outer perimeter"), content="true")
+  inspect(res.gcode.contains("; TYPE: Hole perimeter"), content="true")
+  inspect(res.gcode.contains("; TYPE: Bottom solid infill"), content="true")
 }

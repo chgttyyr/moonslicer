@@ -51,7 +51,7 @@ pub(all) struct Mesh3 {
 
 ///|
 /// Helper to compute 2^e for float32 decoding.
-fn double_pow2(e : Int) -> Double {
+fn double_pow2(e : Int32) -> Double {
   let mut res = 1.0
   if e > 0 {
     for _i = 0; _i < e; _i = _i + 1 {
@@ -68,7 +68,7 @@ fn double_pow2(e : Int) -> Double {
 
 ///|
 /// Decode little-endian IEEE 754 32-bit float from bytes.
-pub fn read_f32_le(data : Bytes, offset : Int) -> Double {
+pub fn read_f32_le(data : Bytes, offset : Int32) -> Double {
   if offset + 4 > data.length() {
     return 0.0
   }
@@ -97,7 +97,7 @@ pub fn read_f32_le(data : Bytes, offset : Int) -> Double {
 
 ///|
 /// Decode little-endian uint32.
-pub fn read_u32_le(data : Bytes, offset : Int) -> Int {
+pub fn read_u32_le(data : Bytes, offset : Int32) -> Int32 {
   if offset + 4 > data.length() {
     return 0
   }

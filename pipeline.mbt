@@ -4,11 +4,11 @@
 ///|
 /// Summary statistics for a 3D mesh slicing job.
 pub(all) struct MeshSliceStats {
-  triangle_count : Int
+  triangle_count : Int32
   width : Double
   depth : Double
   height : Double
-  estimated_layers : Int
+  estimated_layers : Int32
   min_z : Double
   max_z : Double
 } derive(Debug)
@@ -17,7 +17,7 @@ pub(all) struct MeshSliceStats {
 /// Calculate summary statistics for slicing a mesh.
 pub fn get_mesh_slice_stats(
   mesh : Mesh3,
-  config? : SlicerConfig = SlicerConfig::default(),
+  config~ : SlicerConfig = SlicerConfig::default(),
 ) -> MeshSliceStats {
   let b = mesh.bounds
   let w = b.width()
@@ -46,9 +46,9 @@ pub fn get_mesh_slice_stats(
 /// Slice a 3D mesh into G-code end-to-end.
 pub fn slice_mesh_to_gcode(
   mesh : Mesh3,
-  config? : SlicerConfig = SlicerConfig::default(),
-  bed_center_x? : Double = 100.0,
-  bed_center_y? : Double = 100.0,
+  config~ : SlicerConfig = SlicerConfig::default(),
+  bed_center_x~ : Double = 100.0,
+  bed_center_y~ : Double = 100.0,
 ) -> GCodeResult {
   let centered = mesh.center_to_bed()
   let layers = slice_mesh(centered, config)
@@ -59,9 +59,9 @@ pub fn slice_mesh_to_gcode(
 /// Parse raw STL bytes (ASCII or binary) and slice directly to G-code.
 pub fn slice_stl_bytes_to_gcode(
   bytes : Bytes,
-  config? : SlicerConfig = SlicerConfig::default(),
-  bed_center_x? : Double = 100.0,
-  bed_center_y? : Double = 100.0,
+  config~ : SlicerConfig = SlicerConfig::default(),
+  bed_center_x~ : Double = 100.0,
+  bed_center_y~ : Double = 100.0,
 ) -> Result[GCodeResult, SlicerError] {
   match parse_stl(bytes) {
     Ok(mesh) =>
