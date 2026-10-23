@@ -266,6 +266,39 @@ pub fn Polygon2::contains_point(self : Polygon2, pt : Vec2) -> Bool {
 }
 
 ///|
+pub fn Polygon2::centroid(self : Polygon2) -> Vec2 {
+  let n = self.points.length()
+  if n == 0 {
+    return Vec2::zero()
+  }
+  let mut cx = 0.0
+  let mut cy = 0.0
+  for p in self.points {
+    cx += p.x
+    cy += p.y
+  }
+  Vec2::new(cx / n.to_double(), cy / n.to_double())
+}
+
+///|
+/// Check whether this polygon completely contains another polygon.
+/// A smaller polygon can never contain a larger one, and all vertices of the other must lie inside.
+pub fn Polygon2::contains_polygon(self : Polygon2, other : Polygon2) -> Bool {
+  if other.points.is_empty() {
+    return false
+  }
+  if self.area().abs() <= other.area().abs() {
+    return false
+  }
+  for p in other.points {
+    if !self.contains_point(p) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// 3D Axis-Aligned Bounding Box.
 pub(all) struct BBox3 {
   min : Vec3
@@ -295,4 +328,162 @@ pub fn BBox3::height(self : BBox3) -> Double {
 ///|
 pub fn BBox3::center(self : BBox3) -> Vec3 {
   self.min.add(self.max).scale(0.5)
+}
+
+///|
+/// An exterior polygon contour together with its interior holes (PrusaSlicer-compatible ExPolygon).
+pub(all) struct ExPolygon {
+  contour : Polygon2
+  holes : Array[Polygon2]
+} derive(Debug, Eq)
+
+///|
+pub fn ExPolygon::new(
+  contour : Polygon2,
+  holes~ : Array[Polygon2] = [],
+) -> ExPolygon {
+  let normalized_holes : Array[Polygon2] = []
+  for h in holes {
+    normalized_holes.push(h.ensure_cw())
+  }
+  { contour: contour.ensure_ccw(), holes: normalized_holes, }
+}
+
+///|
+/// Net cross-sectional area (outer contour area minus all interior holes).
+pub fn ExPolygon::area(self : ExPolygon) -> Double {
+  let mut a = self.contour.area().abs()
+  for h in self.holes {
+    a -= h.area().abs()
+  }
+  if a < 0.0 {
+    0.0
+  } else {
+    a
+  }
+}
+
+///|
+/// Find a guaranteed interior point in the solid material (not inside any hole).
+pub fn ExPolygon::interior_point(self : ExPolygon) -> Vec2 {
+  let pts = self.contour.points
+  let n = pts.length()
+  if n < 3 {
+    return Vec2::zero()
+  }
+  for i = 0; i < n; i = i + 1 {
+    let p1 = pts[i]
+    let p2 = pts[(i + 1) % n]
+    let mid = p1.add(p2).scale(0.5)
+    let edge_dir = p2.sub(p1).normalize()
+    let inward_norm = edge_dir.left_normal()
+    let cand1 = mid.add(inward_norm.scale(0.2))
+    if self.contains_point(cand1) {
+      return cand1
+    }
+    let cand2 = mid.add(inward_norm.scale(0.5))
+    if self.contains_point(cand2) {
+      return cand2
+    }
+    let cand3 = mid.add(inward_norm.scale(1.0))
+    if self.contains_point(cand3) {
+      return cand3
+    }
+  }
+  self.contour.centroid()
+}
+
+///|
+/// Point containment: inside the outer contour and not inside any interior hole.
+pub fn ExPolygon::contains_point(self : ExPolygon, pt : Vec2) -> Bool {
+  if !self.contour.contains_point(pt) {
+    return false
+  }
+  for h in self.holes {
+    if h.contains_point(pt) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Build topological hierarchy (ExPolygons) from an arbitrary array of sliced closed polygons.
+/// Accurately classifies multi-island outer contours vs inner holes and nested islands.
+pub fn build_expolygons(polygons : Array[Polygon2]) -> Array[ExPolygon] {
+  // 1. Filter degenerate polygons
+  let valid : Array[Polygon2] = []
+  for poly in polygons {
+    if poly.points.length() >= 3 && poly.area().abs() > 1.0e-5 {
+      valid.push(poly)
+    }
+  }
+
+  let n = valid.length()
+  if n == 0 {
+    return []
+  }
+
+  // 2. Sort by absolute area descending (largest outer contours first)
+  for i = 0; i < n; i = i + 1 {
+    for j = i + 1; j < n; j = j + 1 {
+      if valid[i].area().abs() < valid[j].area().abs() {
+        let tmp = valid[i]
+        valid[i] = valid[j]
+        valid[j] = tmp
+      }
+    }
+  }
+
+  // 3. Compute containment depth for each polygon
+  let depths : Array[Int32] = []
+  for i = 0; i < n; i = i + 1 {
+    let mut d = 0
+    for j = 0; j < n; j = j + 1 {
+      if i != j && valid[j].contains_polygon(valid[i]) {
+        d += 1
+      }
+    }
+    depths.push(d)
+  }
+
+  // 4. Distinguish outer islands (even depth) from holes (odd depth)
+  let expolys : Array[ExPolygon] = []
+  let island_indices : Array[Int32] = []
+
+  for i = 0; i < n; i = i + 1 {
+    if depths[i] % 2 == 0 {
+      // Even depth: outer island
+      island_indices.push(i)
+      expolys.push(ExPolygon::new(valid[i]))
+    }
+  }
+
+  // 5. Assign each hole (odd depth) to its immediately containing island
+  for i = 0; i < n; i = i + 1 {
+    if depths[i] % 2 == 1 {
+      // Odd depth: hole
+      let hole_poly = valid[i]
+      let mut best_island_idx = -1
+      let mut min_island_area = 1.0e30
+
+      for k = 0; k < island_indices.length(); k = k + 1 {
+        let island_pos = island_indices[k]
+        if depths[island_pos] == depths[i] - 1 &&
+          valid[island_pos].contains_polygon(hole_poly) {
+          let a = valid[island_pos].area().abs()
+          if a < min_island_area {
+            min_island_area = a
+            best_island_idx = k
+          }
+        }
+      }
+
+      if best_island_idx >= 0 {
+        expolys[best_island_idx].holes.push(hole_poly.ensure_cw())
+      }
+    }
+  }
+
+  expolys
 }

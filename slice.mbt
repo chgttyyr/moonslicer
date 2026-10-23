@@ -63,7 +63,7 @@ pub fn intersect_triangle_plane(tri : Triangle3, z : Double) -> Segment2? {
 /// Stitch a collection of unordered 2D line segments into closed Polygon2 loops.
 pub fn stitch_segments_into_loops(
   segments : Array[Segment2],
-  tolerance? : Double = 1.0e-3,
+  tolerance~ : Double = 1.0e-3,
 ) -> Array[Polygon2] {
   let loops : Array[Polygon2] = []
   let n = segments.length()
@@ -152,11 +152,25 @@ pub fn stitch_segments_into_loops(
 }
 
 ///|
-/// A sliced 2D layer containing reconstructed boundary polygons.
+/// A sliced 2D layer containing reconstructed boundary polygons and topological ExPolygons.
 pub(all) struct SliceLayer {
   z : Double
   polygons : Array[Polygon2]
+  expolygons : Array[ExPolygon]
 } derive(Debug)
+
+///|
+pub fn SliceLayer::new(
+  z : Double,
+  polygons : Array[Polygon2],
+  expolygons? : Array[ExPolygon],
+) -> SliceLayer {
+  let eps = match expolygons {
+    Some(e) => e
+    None => build_expolygons(polygons)
+  }
+  { z, polygons, expolygons: eps, }
+}
 
 ///|
 /// Slice a 3D mesh at a specific Z height into closed polygons.
@@ -174,7 +188,8 @@ pub fn slice_mesh_at_z(mesh : Mesh3, z : Double) -> SliceLayer {
   }
 
   let polygons = stitch_segments_into_loops(segments)
-  { z, polygons, }
+  let expolygons = build_expolygons(polygons)
+  { z, polygons, expolygons, }
 }
 
 ///|
