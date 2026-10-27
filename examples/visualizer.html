@@ -182,6 +182,7 @@
       <div class="stat-row"><span>Total Layers:</span><span class="stat-value" id="stat-total-layers">-</span></div>
       <div class="stat-row"><span>Layer Height:</span><span class="stat-value" id="stat-layer-h">-</span></div>
       <div class="stat-row"><span>Layer Surface:</span><span class="stat-value" id="stat-surface" style="color: #67e8f9;">-</span></div>
+      <div class="stat-row"><span>Collisions Resolved:</span><span class="stat-value" id="stat-collisions" style="color: #f43f5e;">0</span></div>
       <div class="stat-row"><span>Total Moves:</span><span class="stat-value" id="stat-moves">-</span></div>
       <div class="stat-row"><span>Est. Filament:</span><span class="stat-value" id="stat-filament">-</span></div>
     </div>
@@ -249,9 +250,14 @@
       let curLayer = { idx: 0, z: 0.0, surface: 'Unknown', moves: [] };
       let lastX = 100.0, lastY = 100.0, lastZ = 0.0, lastE = 0.0;
       let totalFilament = 0.0;
+      let totalCollisions = 0;
 
       for (let rawLine of lines) {
         let line = rawLine.trim();
+        if (line.includes('[COLLISION RESOLVED]')) {
+          totalCollisions++;
+          continue;
+        }
         if (line.startsWith('; LAYER:')) {
           if (curLayer.moves.length > 0) {
             parsedLayers.push(curLayer);
@@ -318,6 +324,7 @@
       layers = parsedLayers;
       document.getElementById('stat-total-layers').textContent = layers.length;
       document.getElementById('stat-filament').textContent = totalFilament.toFixed(1) + ' mm';
+      document.getElementById('stat-collisions').textContent = totalCollisions;
       if (layers.length > 1) {
         const h = (layers[layers.length - 1].z - layers[0].z) / (layers.length - 1);
         document.getElementById('stat-layer-h').textContent = h.toFixed(2) + ' mm';
