@@ -1,6 +1,6 @@
 # MoonSlicer 架构与计算几何算法实现文档 (PrusaSlicer 对齐版)
 
-本文档详细阐述 **MoonSlicer**（纯 MoonBit 实现的 3D 打印切片引擎）的核心计算几何算法、数据结构、拓扑树构建与数学模型。
+本文档详细阐述 **MoonSlicer**（纯 MoonBit 实现的 3D 打印切片引擎）的核心计算几何算法、多孔偏置碰撞消解机制、适用模型边界及与 PrusaSlicer 的全维度对比。
 
 ---
 
@@ -50,10 +50,11 @@
                               |
                               v
 +-------------------------------------------------------------+
-| 6. 多边形双向壁厚偏置 (generate_expolygon_perimeters)      |
-|    - 外轮廓向内偏置 (Inward Offset, 1~N 层外壁)            |
-|    - 内孔洞向外偏置 (Outward Offset, 1~N 层孔壁)           |
-|    - 边向量反转校验 (Edge Inversion Check) 防塌缩退化      |
+| 6. 轮廓偏置与碰撞消解 (generate_expolygon_perimeters)      |
+|    - 距离场间隙分析 (Pairwise Clearance Analysis)          |
+|    - 自适应间隙截断与重叠抑制 (Clamping & Wall Suppression)|
+|    - 后置边线求交校验 (Edge-Edge Crossing Verification)    |
+|    - 消除相邻孔交叠与薄壁穿透，输出消解日志                |
 +-------------------------------------------------------------+
                               |
                               v
@@ -69,14 +70,14 @@
 | 8. 体积挤出计算与 G-code 代码合成 (generate_gcode)         |
 |    - 扁平跑道截面积物理建模 (Stadium Bead Cross-section)   |
 |    - 计算耗材进给增量 Delta E = BeadArea * Length / FilArea|
-|    - 注入标准分类注释 (; TYPE: Outer perimeter / Hole / Infill)|
+|    - 注入标准分类注释与碰撞记录 (; [COLLISION RESOLVED])    |
 |    - 输出 Marlin / RepRap / Klipper 标准 G-code 脚本       |
 +-------------------------------------------------------------+
 ```
 
 ---
 
-## 2. 数学模型与算法原理
+## 2. 核心数学模型与关键算法
 
 ### 2.1 三角形-水平平面求交
 给定 3D 三角形空间顶点 $A, B, C$ 与截面高度 $Z = z$。
@@ -86,48 +87,81 @@ $$P(t) = A + t (B - A), \quad t \in [0, 1]$$
 $$A_z + t (B_z - A_z) = z \implies t = \frac{z - A_z}{B_z - A_z}$$
 每个有效相交的三角形严格产生 2 个相交点，构成一条 2D 相交线段 $Segment2$。加入 $\epsilon = 10^{-5}$ 微小扰动防止截面恰好穿过顶点的奇异退化。
 
-### 2.2 拓扑多岛屿与内孔层级树 (ExPolygon Hierarchy)
-一个打印层面上可能同时包含多个互不连通的实体（多岛屿，Multi-Islands），且各实体内部可能含有任意数量的开孔（Holes）。
-MoonSlicer 引入与 PrusaSlicer 一致的 `ExPolygon` 拓扑数据结构：
-1. **面积降序排序**：将所有重构出的闭环按绝对面积降序排列；
-2. **包含深度计算**：对于多边形 $P_i$，检测所有绝对面积大于它的多边形 $P_j$ 是否包含 $P_i$ 的全部顶点。被包含次数记为深度 $Depth_i$；
-3. **奇偶角色判定**：
-   - 若 $Depth_i$ 为偶数（0, 2, ...），$P_i$ 为独立外轮廓岛屿（CCW）；
-   - 若 $Depth_i$ 为奇数（1, 3, ...），$P_i$ 为内孔洞（CW），自动归入包含它的最小直接外轮廓中。
+### 2.2 ExPolygon 拓扑层级树构建
+参考 PrusaSlicer/Clipper 机制，MoonSlicer 将多边形按面积降序排列，基于点包含测试计算嵌套深度：
+- 偶数深度（0, 2..）：实体外轮廓（CCW 逆时针，面积为正）；
+- 奇数深度（1, 3..）：内部孔洞（CW 顺时针，面积为负），自动分配至包围它的直接父外轮廓。
 
-### 2.3 多边形内外双向角平分线偏置 (Inward & Outward Offsetting)
-对于多边形顶点 $P_i$，其前后两条邻边向量为 $e_1 = P_i - P_{i-1}$ 与 $e_2 = P_{i+1} - P_i$，对应的单位法向量为 $n_1, n_2$。
-角平分线偏置向量计算公式为：
+### 2.3 轮廓双向角平分线偏置
+对于顶点 $P_i$，前后邻边单位方向为 $u_1, u_2$，左手法向量为 $n_1, n_2$。偏置顶点为：
 $$P'_i = P_i + d \cdot \frac{n_1 + n_2}{1 + n_1 \cdot n_2}$$
-- **外轮廓偏置**：CCW 多边形左法向量指向多边形内部，实现向内收缩生成外壁；
-- **内孔洞偏置**：CW 多边形左法向量指向多边形外部（即实体材料内部），实现孔洞向外收缩生成孔壁；
-- **边反转校验 (Edge Inversion Check)**：
-  每次偏置后检验 $(P'_{i+1} - P'_i) \cdot (P_{i+1} - P_i) \le 0$。若检测到边向量反转，说明多边形在该层偏置下发生自交崩溃，立即优雅终止并锁定有效边界。
+- **外轮廓偏置**：CCW 多边形法线向内，实现实体轮廓向内收缩生成外壁；
+- **内孔洞偏置**：CW 多边形法线向外，实现孔洞轮廓向外膨胀生成孔壁。
 
-### 2.4 跨层表面识别 (Cross-layer Surface Classification)
-切片引擎需要精准区分三种不同受力与外观特性的表面：
-1. **BottomSolid (底面实心层 / 桥接悬垂)**：
-   - 处于模型最下方 $bottom\_solid\_layers$ 层；或
-   - 在中间层，但该岛屿在下一层 $Z_{i-1}$ 无材料支撑（下方悬空）；
-   - 采用 100% 密度实心填充，确保底面平整不漏光。
-2. **TopSolid (顶面实心层 / 阶梯屋顶)**：
-   - 处于模型最上方 $top\_solid\_layers$ 层；或
-   - 在中间层，但该岛屿在上一层 $Z_{i+1}$ 无覆盖实体（上方暴露于空气）；
-   - 采用 100% 密度实心填充，封顶平整紧密。
-3. **InternalSparse (内部稀疏填充)**：
-   - 上下均有实心层包覆的内部骨架区域，使用用户指定的稀疏网格填充（如 15%~20%），兼顾结构强度与打印效率。
+---
 
-### 2.5 内孔感知扫描线填充 (Hole-aware Infill Generation)
-对含有内孔的 `ExPolygon`：
-1. 扫描线同时求交外轮廓各边与所有内孔各边；
-2. 沿走针方向将所有交点坐标排序：$X_0 < X_1 < \dots < X_{2m-1}$；
-3. 按照奇偶性配对线段 $[X_{2k}, X_{2k+1}]$；
-4. 校验线段中点 $P_{mid}$：严格满足 `expoly.contains_point(P_{mid})`（在外边界内且在所有孔洞外）；
-5. 自动剔除穿过孔洞的区间，将走针无缝切断为多段实体线条。
+### 2.4 重点：偏置碰撞处理机制 (Offset Collision Resolution)
 
-### 2.6 体积挤出物理建模 (Volumetric Extrusion)
-喷嘴挤出的熔融塑料线条截面受压平呈现**扁平跑道截面 (Stadium Cross-section)**：
-$$A_{bead} = (W - H) H + \pi \left(\frac{H}{2}\right)^2$$
-步进电机耗材丝推进长度（E 值）：
-$$\Delta E = \frac{A_{bead} \times L}{\pi (D / 2)^2}$$
-严格按毫米进给，支持绝对挤出模式（`M82`）与分层智能回抽防拉丝。
+#### A. 为什么单靠“边反转检查”无法解决相邻孔碰撞？
+单多边形的边反转检查公式 $(P'_{i+1} - P'_i) \cdot (P_{i+1} - P_i) \le 0$ **只能检测单个多边形自身的内折萎缩**。
+当模型中存在两个相邻孔 $H_1, H_2$（相距 $L$）时，若两孔各向外偏置 $d$：
+- $H_1$ 自身的局部几何形状完全正常，无边反转；
+- $H_2$ 自身的局部几何形状完全正常，无边反转；
+- **但当 $2d > L$ 时，$H_1$ 的偏置线与 $H_2$ 的偏置线在空间中发生相交并重叠交叉！**
+如果直接生成刀路，喷嘴将在两孔之间的薄壁区域重复挤出，造成 200% 过量挤出，导致喷嘴刮擦、溢料甚至零件报废。
+
+#### B. MoonSlicer 的碰撞消解全链路解决方案
+MoonSlicer 实现了三层递进式的偏置碰撞防护体系：
+
+1. **前置欧氏距离场间隙分析 (Pairwise Clearance Analysis)**：
+   在偏置前，计算所有孔洞之间、孔洞与外壁之间的最小欧几里得距离：
+   $$gap(H_i, H_j) = \min_{s_1 \in H_i, s_2 \in H_j} \text{dist}(s_1, s_2)$$
+   得到孔 $i$ 的最大安全膨胀阈值：
+   $$d_{safe} = \min \left( \min_{j \ne i} 0.48 \cdot gap(H_i, H_j), gap(H_i, C) - D_{outer} \right)$$
+
+2. **自适应偏置截断与薄壁壁厚抑制 (Adaptive Clamping & Wall Suppression)**：
+   - 当请求的第 $w$ 层偏置累计量 $D_w > d_{safe}$ 时，触发碰撞防护；
+   - 若为第 0 层壁（首道轮廓），将偏置量动态截断至 $d_{safe}$，确保两孔壁在临界处相切而不相交；
+   - 若为第 1~N 层内壁，直接**抑制生成该层壁（`WallSuppressed`）**，避免在狭窄薄壁中挤入多余外壁；
+   - 记录碰撞事件结构体 `OffsetCollisionEvent`，并在 G-code 中生成溯源注释：
+     `; [COLLISION RESOLVED] Hole 0 - WallSuppressed (clearance: 1.200 mm)`。
+
+3. **后置几何线段交叉验证 (Post-Offset Edge-Crossing Verification)**：
+   在偏置生成完毕后，调用 `Polygon2::edges_intersect` 对所有外壁与孔壁执行穷举线段交叉校验。若发现任何意外相交多边形，立即执行后置裁剪消除（`IntersectionPruned`），数学上杜绝自交刀路输出。
+
+---
+
+### 2.5 跨层表面识别 (Cross-layer Surface Classification)
+1. **BottomSolid (底面 / 悬垂桥接)**：处于底层 $bottom\_solid\_layers$ 内，或当前岛屿在下一层 $Z_{i-1}$ 无材料支撑（下方悬空），执行 100% 密实填充。
+2. **TopSolid (顶面 / 阶梯屋顶)**：处于顶层 $top\_solid\_layers$ 内，或当前岛屿在上一层 $Z_{i+1}$ 露空，执行 100% 密实填充。
+3. **InternalSparse (内部稀疏填充)**：上下均有覆盖的实体区域，执行预设稀疏网格填充（如 20%）。
+
+---
+
+## 3. 适用模型边界与限制 (Applicable Model Boundaries)
+
+为了向工业用户提供明确的工程承诺，MoonSlicer 明确界定本版本的输入模型适用边界：
+
+| 维度 | 支持范围 (Supported) | 边界限制与异常处理 (Limitations) |
+| :--- | :--- | :--- |
+| **网格拓扑** | 严格 2-流形闭合三角形网格（2-Manifold Watertight Mesh），亏格 $g \ge 0$ | 非闭合破损网格通过 $\epsilon = 1.0\times 10^{-4}$ 贪心链式缝合容错，严重破损将报错 `SlicingFailed` |
+| **内孔结构** | 任意数量的多通孔、盲孔、多岛屿共存截面 | 孔间距 $< 0.1\text{mm}$（低于喷嘴孔径 1/4）时，碰撞机制将自动抑制孔壁并转为实体填充 |
+| **最小特征尺寸** | 最小可打印壁厚 $t_{min} = 0.5 \times LineWidth$（0.4mm 喷嘴对应 0.2mm） | 壁厚低于 0.2mm 时外壁自动回退，防止生成欠压实自相交轨迹 |
+| **空间尺寸** | $0.1\text{mm} \times 0.1\text{mm} \times 0.1\text{mm} \sim 2000\text{mm} \times 2000\text{mm} \times 2000\text{mm}$ | 自动平移至热床原点中心，支持负坐标 STL 自动归零 |
+| **填充模式** | 0° / 45° / 90° / 135° 线性网格扫描线填充 | 3D 陀螺体（Gyroid）及共形曲面填充规划在未来版本支持 |
+
+---
+
+## 4. 与成熟工业级 PrusaSlicer 架构全维度对比说明
+
+| 功能模块 | PrusaSlicer / Slic3r (成熟 C++ 工业引擎) | MoonSlicer (纯 MoonBit 原生引擎) | 差异与边界说明 |
+| :--- | :--- | :--- | :--- |
+| **基础语言与依赖** | C++17 + wxWidgets + CGAL + Boost + TBB | **纯 MoonBit (Zero-FFI, 零外部 C/Rust 动态库)** | MoonSlicer 完全自研计算几何，原生编译 Wasm 与本地二进制 |
+| **网格模型解析** | 支持 STL / OBJ / 3MF / STEP，依赖 libigl/OpenCASCADE | 支持标准 Binary STL 与 ASCII STL 流式解码 | MoonSlicer 聚焦 STL 标准网格，无重型第三方 CAD 依赖 |
+| **截面闭环缝合** | Clipper2 PolyTree 拓扑图 | **自研 $\epsilon$-Chaining 拓扑缝合 + Jordan 奇偶包含树** | 具备完整的 ExPolygon 实体与内孔层级表达能力 |
+| **轮廓壁厚偏置** | 基于 Clipper2 整数多边形膨胀/收缩 | **角平分线法向量偏置 + 边反转检测 + 间隙自适应截断** | MoonSlicer 引入两阶段欧氏碰撞消解，消除相邻孔重叠 |
+| **顶底实心层** | 支持顶面、底面、阶梯实心层与桥接表面检测 | **支持 TopSolid / BottomSolid 识别与 100% 实心填充** | 均支持跨层上下几何覆盖比对 |
+| **内部填充路径** | 支持 15+ 种填充（Rectilinear, Gyroid, Honeycomb 等） | **支持 Rectilinear 45°/135° 奇偶交替线性填充** | MoonSlicer v0.1 聚焦最成熟稳定的线性网格与内孔避空 |
+| **挤出量数学建模** | 扁平跑道截面微积分 ($A = (W-H)H + \pi(H/2)^2$) | **严格相同的扁平跑道截面积微积分物理建模** | 生成标准 Marlin/RepRap 绝对坐标 E 轴推进量 |
+| **可视化与工具** | 基于 OpenGL 3D 实时渲染桌面客户端 | **基于纯 HTML5 Canvas 的跨平台刀路查看器** | MoonSlicer 支持免安装浏览器即开即用逐层审视与动画回放 |
+| **支撑生成系统** | 树状支撑 (Organic Tree) 与网格接触面支撑 | *v0.1 暂未包含（规划中）* | 明确标注边界：本期核心聚焦切片核心拓扑与刀路引擎 |
