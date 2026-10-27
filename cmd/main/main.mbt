@@ -239,6 +239,7 @@ fn run_slice(args : Array[String]) -> Unit {
         println("Slicing Completed Successfully!")
         println("  Output File:        \{output_path}")
         println("  Total Layers:       \{result.total_layers}")
+        println("  Collisions Resolved:\{result.total_collisions_resolved}")
         println("  Filament Extruded:  \{result.total_filament_mm} mm")
         println(
           "  Est. Print Time:    \{result.estimated_print_time_sec / 60.0} min",

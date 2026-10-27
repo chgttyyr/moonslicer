@@ -84,6 +84,7 @@ pub(all) struct ExPolygonPerimeters {
   outer_walls : Array[Polygon2]
   hole_walls : Array[Array[Polygon2]]
   infill_boundary : ExPolygon?
+  collisions : Array[OffsetCollisionEvent]
 } derive(@debug.Debug)
 
 pub(all) struct GCodeResult {
@@ -91,6 +92,7 @@ pub(all) struct GCodeResult {
   total_filament_mm : Double
   total_layers : Int32
   estimated_print_time_sec : Double
+  total_collisions_resolved : Int32
 } derive(@debug.Debug)
 
 pub(all) struct Mesh3 {
@@ -110,6 +112,15 @@ pub(all) struct MeshSliceStats {
   max_z : Double
 } derive(@debug.Debug)
 
+pub(all) struct OffsetCollisionEvent {
+  hole_a_idx : Int32
+  hole_b_idx : Int32
+  clearance : Double
+  requested_offset : Double
+  clamped_offset : Double
+  action : String
+} derive(Eq, @debug.Debug)
+
 pub(all) struct Polygon2 {
   points : Array[Vec2]
 } derive(Eq, @debug.Debug)
@@ -117,8 +128,11 @@ pub fn Polygon2::area(Self) -> Double
 pub fn Polygon2::centroid(Self) -> Vec2
 pub fn Polygon2::contains_point(Self, Vec2) -> Bool
 pub fn Polygon2::contains_polygon(Self, Self) -> Bool
+pub fn Polygon2::distance_to_polygon(Self, Self) -> Double
+pub fn Polygon2::edges_intersect(Self, Self) -> Bool
 pub fn Polygon2::ensure_ccw(Self) -> Self
 pub fn Polygon2::ensure_cw(Self) -> Self
+pub fn Polygon2::intersects_polygon(Self, Self) -> Bool
 pub fn Polygon2::is_ccw(Self) -> Bool
 pub fn Polygon2::new(Array[Vec2]) -> Self
 pub fn Polygon2::reverse(Self) -> Self
@@ -128,6 +142,9 @@ pub(all) struct Segment2 {
   p2 : Vec2
 } derive(Eq, @debug.Debug)
 pub fn Segment2::direction(Self) -> Vec2
+pub fn Segment2::distance_to_point(Self, Vec2) -> Double
+pub fn Segment2::distance_to_segment(Self, Self) -> Double
+pub fn Segment2::intersect(Self, Self) -> Vec2?
 pub fn Segment2::length(Self) -> Double
 pub fn Segment2::new(Vec2, Vec2) -> Self
 

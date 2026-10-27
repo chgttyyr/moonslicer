@@ -9,6 +9,7 @@ pub(all) struct GCodeResult {
   total_filament_mm : Double
   total_layers : Int32
   estimated_print_time_sec : Double
+  total_collisions_resolved : Int32
 } derive(Debug)
 
 ///|
@@ -78,6 +79,7 @@ pub fn generate_gcode(
   let sb = StringBuilder()
   let mut current_e = 0.0
   let mut total_time_sec = 0.0
+  let mut total_collisions = 0
 
   // Header comments
   sb.write_string("; ==========================================\n")
@@ -152,6 +154,12 @@ pub fn generate_gcode(
         config.wall_count,
         config.line_width,
       )
+      total_collisions += perims.collisions.length()
+      for c in perims.collisions {
+        sb.write_string(
+          "; [COLLISION RESOLVED] Hole \{c.hole_a_idx} - \{c.action} (clearance: \{format_f3(c.clearance)} mm)\n",
+        )
+      }
 
       // 1a. Outer walls
       for wall_idx, wall in perims.outer_walls {
@@ -322,5 +330,6 @@ pub fn generate_gcode(
     total_filament_mm: current_e,
     total_layers: layers.length(),
     estimated_print_time_sec: total_time_sec,
+    total_collisions_resolved: total_collisions,
   }
 }
