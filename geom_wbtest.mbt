@@ -80,3 +80,63 @@ test "geom/expolygon_and_multi_island_holes" {
   inspect(ep2.area(), content="400")
   inspect(ep2.contains_point(Vec2::new(210.0, 210.0)), content="true")
 }
+
+///|
+test "geom/segment_intersection_and_clearance" {
+  let s1 = Segment2::new(Vec2::new(0.0, 0.0), Vec2::new(10.0, 10.0))
+  let s2 = Segment2::new(Vec2::new(0.0, 10.0), Vec2::new(10.0, 0.0))
+
+  // Crossing segments
+  match s1.intersect(s2) {
+    Some(pt) => {
+      inspect(pt.x, content="5")
+      inspect(pt.y, content="5")
+    }
+    None => inspect(false, content="true")
+  }
+
+  // Parallel disjoint segments
+  let s3 = Segment2::new(Vec2::new(0.0, 2.0), Vec2::new(10.0, 12.0))
+  inspect(s1.intersect(s3) is None, content="true")
+
+  // Distance from point to segment
+  let p = Vec2::new(5.0, 0.0)
+  let horiz = Segment2::new(Vec2::new(0.0, 5.0), Vec2::new(10.0, 5.0))
+  inspect(horiz.distance_to_point(p), content="5")
+}
+
+///|
+test "geom/polygon_clearance_and_collision" {
+  // Box 1: [0, 0] to [10, 10]
+  let b1 = Polygon2::new([
+    Vec2::new(0.0, 0.0),
+    Vec2::new(10.0, 0.0),
+    Vec2::new(10.0, 10.0),
+    Vec2::new(0.0, 10.0),
+  ])
+
+  // Box 2: [12, 0] to [22, 10] (gap of 2.0mm)
+  let b2 = Polygon2::new([
+    Vec2::new(12.0, 0.0),
+    Vec2::new(22.0, 0.0),
+    Vec2::new(22.0, 10.0),
+    Vec2::new(12.0, 10.0),
+  ])
+
+  // Clearance between b1 and b2 should be exactly 2.0mm
+  let dist = b1.distance_to_polygon(b2)
+  inspect(dist > 1.99 && dist < 2.01, content="true")
+  inspect(b1.intersects_polygon(b2), content="false")
+
+  // Box 3: [8, 0] to [18, 10] (overlapping with b1 from X=8 to 10!)
+  let b3 = Polygon2::new([
+    Vec2::new(8.0, 0.0),
+    Vec2::new(18.0, 0.0),
+    Vec2::new(18.0, 10.0),
+    Vec2::new(8.0, 10.0),
+  ])
+
+  // Should detect collision!
+  inspect(b1.intersects_polygon(b3), content="true")
+  inspect(b1.distance_to_polygon(b3), content="0")
+}

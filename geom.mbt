@@ -182,6 +182,78 @@ pub fn Segment2::direction(self : Segment2) -> Vec2 {
 }
 
 ///|
+/// Distance from a 2D point to this line segment.
+pub fn Segment2::distance_to_point(self : Segment2, pt : Vec2) -> Double {
+  let v = self.p2.sub(self.p1)
+  let len_sq = v.length_sq()
+  if len_sq < 1.0e-12 {
+    return self.p1.distance(pt)
+  }
+  let t = pt.sub(self.p1).dot(v) / len_sq
+  if t <= 0.0 {
+    self.p1.distance(pt)
+  } else if t >= 1.0 {
+    self.p2.distance(pt)
+  } else {
+    let proj = self.p1.add(v.scale(t))
+    proj.distance(pt)
+  }
+}
+
+///|
+/// Test intersection between two 2D line segments. Returns Some(intersection_pt) or None.
+pub fn Segment2::intersect(self : Segment2, other : Segment2) -> Vec2? {
+  let p = self.p1
+  let r = self.p2.sub(self.p1)
+  let q = other.p1
+  let s = other.p2.sub(other.p1)
+
+  let r_cross_s = r.cross(s)
+  let q_sub_p = q.sub(p)
+
+  if r_cross_s.abs() < 1.0e-9 {
+    return None
+  }
+
+  let t = q_sub_p.cross(s) / r_cross_s
+  let u = q_sub_p.cross(r) / r_cross_s
+
+  if t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0 {
+    Some(p.add(r.scale(t)))
+  } else {
+    None
+  }
+}
+
+///|
+/// Minimum Euclidean distance between two line segments.
+pub fn Segment2::distance_to_segment(
+  self : Segment2,
+  other : Segment2,
+) -> Double {
+  match self.intersect(other) {
+    Some(_) => 0.0
+    None => {
+      let d1 = self.distance_to_point(other.p1)
+      let d2 = self.distance_to_point(other.p2)
+      let d3 = other.distance_to_point(self.p1)
+      let d4 = other.distance_to_point(self.p2)
+      let mut min_d = d1
+      if d2 < min_d {
+        min_d = d2
+      }
+      if d3 < min_d {
+        min_d = d3
+      }
+      if d4 < min_d {
+        min_d = d4
+      }
+      min_d
+    }
+  }
+}
+
+///|
 /// A closed 2D polygon boundary.
 pub(all) struct Polygon2 {
   points : Array[Vec2]
@@ -296,6 +368,85 @@ pub fn Polygon2::contains_polygon(self : Polygon2, other : Polygon2) -> Bool {
     }
   }
   true
+}
+
+///|
+/// Minimum clearance distance between two closed 2D polygons.
+pub fn Polygon2::distance_to_polygon(
+  self : Polygon2,
+  other : Polygon2,
+) -> Double {
+  let n1 = self.points.length()
+  let n2 = other.points.length()
+  if n1 < 2 || n2 < 2 {
+    return 1.0e9
+  }
+  let mut min_dist = 1.0e9
+
+  for i = 0; i < n1; i = i + 1 {
+    let seg1 = Segment2::new(self.points[i], self.points[(i + 1) % n1])
+    for j = 0; j < n2; j = j + 1 {
+      let seg2 = Segment2::new(other.points[j], other.points[(j + 1) % n2])
+      let d = seg1.distance_to_segment(seg2)
+      if d < 1.0e-9 {
+        return 0.0
+      }
+      if d < min_dist {
+        min_dist = d
+      }
+    }
+  }
+  min_dist
+}
+
+///|
+/// Check whether any edge of this polygon intersects any edge of another polygon.
+pub fn Polygon2::edges_intersect(self : Polygon2, other : Polygon2) -> Bool {
+  let n1 = self.points.length()
+  let n2 = other.points.length()
+  for i = 0; i < n1; i = i + 1 {
+    let seg1 = Segment2::new(self.points[i], self.points[(i + 1) % n1])
+    for j = 0; j < n2; j = j + 1 {
+      let seg2 = Segment2::new(other.points[j], other.points[(j + 1) % n2])
+      match seg1.intersect(seg2) {
+        Some(_) => return true
+        None => ()
+      }
+    }
+  }
+  false
+}
+
+///|
+/// Check whether two closed 2D polygons intersect or overlap (edges cross or containment).
+pub fn Polygon2::intersects_polygon(self : Polygon2, other : Polygon2) -> Bool {
+  let n1 = self.points.length()
+  let n2 = other.points.length()
+  if n1 < 3 || n2 < 3 {
+    return false
+  }
+
+  // 1. Edge-edge intersection test
+  for i = 0; i < n1; i = i + 1 {
+    let seg1 = Segment2::new(self.points[i], self.points[(i + 1) % n1])
+    for j = 0; j < n2; j = j + 1 {
+      let seg2 = Segment2::new(other.points[j], other.points[(j + 1) % n2])
+      match seg1.intersect(seg2) {
+        Some(_) => return true
+        None => ()
+      }
+    }
+  }
+
+  // 2. Vertex containment test (one polygon entirely inside the other)
+  if self.contains_point(other.points[0]) {
+    return true
+  }
+  if other.contains_point(self.points[0]) {
+    return true
+  }
+
+  false
 }
 
 ///|
