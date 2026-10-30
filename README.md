@@ -1,8 +1,8 @@
 # MoonSlicer
 
 <p align="center">
-  <b>A Pure MoonBit 3D Printing Slicer & Toolpath Engine (Zero FFI)</b><br>
-  <i>用纯 MoonBit 实现的 3D 打印切片与刀路生成引擎</i>
+  <b>纯 MoonBit 实现的 3D 打印切片与刀路生成引擎 (Zero FFI)</b><br>
+  <i>A Pure MoonBit 3D Printing Slicer & Toolpath Engine</i>
 </p>
 
 <p align="center">
@@ -15,166 +15,165 @@
 
 ---
 
-## Overview
+## 1. 项目概述
 
-**MoonSlicer** is a modern, deterministic 3D printing slicer and toolpath generation engine implemented entirely in [MoonBit](https://www.moonbitlang.com/). It converts 3D triangle meshes (Binary and ASCII STL) into standard, print-ready G-code (Marlin / RepRap / Klipper compatible).
+**MoonSlicer** 是一个使用纯 [MoonBit](https://www.moonbitlang.com/) 语言开发的现代增材制造 **3D 打印切片与刀路生成引擎**。它能够将三维三角形网格模型（二进制与 ASCII 格式 STL）直接转换生成适用于 3D 打印机固件（Marlin / RepRap / Klipper）的标准 G-code 打印控制指令。
 
-Designed with zero foreign function interface (FFI) bindings, MoonSlicer operates entirely within pure MoonBit memory and compiles natively to both high-performance native machine code and WebAssembly (WASM / Wasm-GC). It features an integrated computational geometry core, robust topological chaining, clearance-aware perimeter offsetting, interior-hole clipping infill, and physical volumetric extrusion modeling.
-
----
-
-## Core Capabilities
-
-- **3D Mesh Parsing & Spatial Normalization**
-  - Streaming IEEE 754 single-precision float32 binary STL and ASCII STL decoder.
-  - Automatic 3D Axis-Aligned Bounding Box (AABB) computation and bed centering with $Z=0$ alignment.
-
-- **Planar Slicing & Topological Loop Stitching**
-  - Triangle-plane intersection with adaptive $\epsilon$-jitter to eliminate vertex degeneracy.
-  - Spatial $\epsilon$-chaining to reconstruct unordered line segments into strict, continuous closed 2D polygon boundaries.
-
-- **ExPolygon Topological Hierarchy**
-  - Jordan curve even-odd depth containment tree distinguishing exterior island contours (CCW, positive area) from nested interior holes (CW, negative area).
-  - Native multi-island and multi-hole geometric representation aligned with modern slicer architectures.
-
-- **Collision-Aware Perimeter Offsetting**
-  - Normal displacement along angle bisectors with miter clamping and edge-inversion collapse checking.
-  - **Pairwise Clearance Field Analysis**: Evaluates Euclidean clearance between adjacent holes and outer contours to calculate dynamic safe expansion bounds $d_{safe}$.
-  - **Adaptive Offset Clamping & Wall Suppression**: Dynamically clamps perimeter expansion in narrow features and suppresses overlapping internal perimeters (`WallSuppressed`) to eliminate duplicate extrusions and nozzle collisions.
-  - **Post-Offset Geometric Validation**: Exhaustive edge-crossing verification (`edges_intersect`) ensuring self-intersection-free toolpaths.
-
-- **Cross-Layer Surface Classification**
-  - Evaluates vertical geometric overlap between layer $Z_i$ and adjacent layers $Z_{i-1}$ / $Z_{i+1}$.
-  - Classifies surfaces into `TopSolid` (roof), `BottomSolid` (floor / bridge), and `InternalSparse`.
-
-- **Alternating Rectilinear Infill**
-  - 45° and 135° scanline infill generation with automatic ray-polygon parity clipping.
-  - Automatically suppresses infill strokes traversing interior holes and islands.
-  - Enforces 100% solid density on top/bottom shells, and configurable density (e.g. 20%) on internal sparse layers.
-
-- **Physical Volumetric Extrusion Modeling**
-  - Precise extrusion calculation based on the standard stadium bead cross-section: $A = (W - H)H + \pi (H / 2)^2$.
-  - Computes exact volumetric flow $V = A \times L$ and E-axis absolute feed increments.
-  - Synthesizes temperature control, axis homing, layer-end retractions, and structured G-code metadata.
-
-- **Toolpath Visualizer**
-  - Lightweight, browser-based HTML5 Canvas toolpath viewer (`examples/visualizer.html`).
-  - Supports layer scrubbing, animation playback, color-coded feature paths (outer perimeter, hole perimeter, inner perimeter, solid infill, sparse infill), and collision resolution tracking.
+本项目采用**零外部 FFI 依赖（Zero FFI）**的纯原生架构，所有计算几何求交、拓扑闭环、多孔偏置碰撞消解、扫描线填充与物理送丝微积分算法均在 MoonBit 原生内存中自主实现。项目支持同时编译为原生机器码（Native）与 WebAssembly（WASM / Wasm-GC），具备极高的跨平台执行效率与确定性输出保证。
 
 ---
 
-## Slicing Pipeline
+## 2. 核心架构与技术特性
+
+### 2.1 三维网格解析与空间归一化
+- **流式 STL 解码**：内建 IEEE 754 单精度浮点数解码器，原生支持标准 Binary STL 与文本 ASCII STL 的流式解析。
+- **自动对齐与热床居中**：自动计算三维网格轴向包围盒（AABB），将模型底部平贴于 $Z = 0$ 打印平面，并将几何质心自动平移对齐至热床中心 $(100, 100)$。
+
+### 2.2 水平截面切片与拓扑闭环缝合
+- **解析平面求交**：在任意层高 $Z = z_i$ 上对三维空间三角形进行线性解析求交，内建自适应 $\epsilon$-微扰机制，杜绝截面恰好切过几何顶点的退化奇异。
+- **拓扑线段链式缝合 ($\epsilon$-Chaining)**：针对切片产生的无序二维线段集合，基于空间首尾距离贪心匹配，将其精确重构成连续闭合的二维多边形轮廓环（`Polygon2`）。
+
+### 2.3 ExPolygon 拓扑层级包含树
+- **Jordan 奇偶深度判定**：基于射线求交与多边形嵌套关系计算包含深度，偶数深度判定为独立实体外岛（CCW 逆时针，正面积），奇数深度判定为内部空腔内孔（CW 顺时针，负面积）。
+- **拓扑树表达**：原生支持单层多独立实体（Multi-Island）与多层嵌套复杂通孔结构的树状表达，与现代主流切片器几何拓扑内核对齐。
+
+### 2.4 间隙感知与偏置碰撞消解引擎
+- **角平分线法向量偏置**：实现实体外壁向内收缩与内孔壁向外膨胀的角平分线偏移，内建斜接截断（Miter Limit）与边反转坍塌检查。
+- **欧氏间隙场分析 (Clearance Field Analysis)**：在生成多圈外壁前，精确评估孔与孔、孔与外轮廓之间的最小几何间隙，推导最大安全膨胀阈值 $d_{safe}$。
+- **自适应截断与重叠抑制 (Clamping & Wall Suppression)**：当特征狭窄时自动截断偏置步长；对于间隙不足以容纳多圈壁厚的狭窄区域，主动**抑制生成重叠内壁**（`WallSuppressed`），彻底杜绝重复挤出造成的喷嘴刮擦与过量溢料。
+- **后置几何交叉校验**：轮廓生成后执行穷举线段交叉校验（`edges_intersect`），数学上杜绝自交或相交刀路输出。
+
+### 2.5 跨层表面分类与顶底识别
+- **三维几何覆盖比对**：通过对比当前层与上下相邻层（$Z_{i-1}$ 与 $Z_{i+1}$）的实体投影覆盖关系。
+- **表面区域精确分类**：
+  - `TopSolid`（顶面/阶梯露空）：上方无实体支撑，强制执行 100% 密实填充；
+  - `BottomSolid`（底面/悬垂桥接）：下方无材料支撑，执行密实桥接填充；
+  - `InternalSparse`（内部区域）：上下均有实体覆盖，执行设定比例的轻量化填充。
+
+### 2.6 45°/135° 奇偶交替扫描线填充
+- **扫描线射线求交**：沿 45° 与 135° 对角线方向生成扫描线，奇偶层交替方向以提高打印件层间力学强度。
+- **内孔避空断针 (Hole Clipping)**：射线求交点排序后基于多边形内外部奇偶校验，自动滤除所有穿过内部空腔的扫描线段，仅在实体材料区域生成有效填充。
+
+### 2.7 跑道截面物理微积分与 G-code 合成
+- **扁平跑道截面微积分 (Stadium Cross-section)**：严格依据 FDM 熔融挤出物理模型 $A = (W - H)H + \pi (H / 2)^2$ 计算微元体积 $V = A \times L$，计算绝对坐标 E 轴送丝进给量。
+- **标准指令输出**：生成包含热床与喷头温控、三轴复位归零、换层抬喷嘴（G0）、回抽防拉丝（Retract）及分层元数据的标准 Marlin / RepRap / Klipper 兼容 G-code。
+
+### 2.8 交互式刀路可视化工具
+- **开箱即用**：提供纯 HTML5 Canvas 架构的轻量级前端刀路查看器（`examples/visualizer.html`），无需本地服务器，双击即可在任意现代浏览器运行。
+- **分层与多色审视**：支持拖拽滑块逐层查看、动画播放、以及外壁（红）、孔壁（橙）、内壁（绿）、顶底实心填充（青）、内部稀疏填充（黄）与碰撞消解事件 HUD 实时显示。
+
+---
+
+## 3. 切片处理管线
 
 ```
 +---------------------------------------------------------------+
-| Input: 3D Mesh (.stl Binary / ASCII)                         |
+| 输入：3D 模型文件 (Binary / ASCII STL)                        |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 1. STL Decoding & Bed Centering (center_to_bed)               |
-|    Stream parser, AABB calculation, translate to bed center   |
+| 1. STL 解码与热床居中对齐 (center_to_bed)                     |
+|    流式解析三角面，计算 AABB 包围盒并平移至热床中心 (0,0,0)   |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 2. Triangle-Plane Intersection (slice_mesh_at_z)              |
-|    Linear intersection at Z = z_i with epsilon-jitter         |
+| 2. 截面解析求交 (slice_mesh_at_z)                             |
+|    各三角面与平面 Z = z_i 线性求交，引入 epsilon 微扰消奇异   |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 3. Topological Loop Stitching (stitch_segments_into_loops)    |
-|    Greedy epsilon-chaining into closed Polygon2 loops         |
+| 3. 拓扑线段闭环缝合 (stitch_segments_into_loops)              |
+|    基于首尾 epsilon 距离贪心重组封闭多边形环 Polygon2         |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 4. ExPolygon Topology Tree (build_expolygons)                 |
-|    Even-odd depth test: CCW Outer Islands vs CW Inner Holes   |
+| 4. ExPolygon 拓扑层级树构建 (build_expolygons)                |
+|    Jordan 奇偶深度判定：外岛 CCW (正面积) vs 内孔 CW (负面积)  |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 5. Clearance-Aware Offsetting (generate_expolygon_perimeters) |
-|    Clearance field analysis, adaptive clamping & suppression  |
+| 5. 间隙感知偏置与碰撞消解 (generate_expolygon_perimeters)     |
+|    距离场分析、自适应截断、薄壁抑制与后置相交校验             |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 6. Surface Classification & Infill (infill.mbt / surface.mbt) |
-|    Top/Bottom solid shells & 45°/135° parity-clipped infill   |
+| 6. 跨层表面分类与奇偶扫描填充 (infill.mbt / surface.mbt)      |
+|    顶底实心识别，45°/135° 交替扫描线与内孔自动剔除断针         |
 +---------------------------------------------------------------+
                                |
                                v
 +---------------------------------------------------------------+
-| 7. Volumetric G-code Synthesis (generate_gcode)               |
-|    Stadium bead calculus, absolute E feed, Marlin/RepRap G10  |
+| 7. 跑道截面挤出量微积分与 G-code 合成 (generate_gcode)        |
+|    体积积分计算 E 轴进给量，注入温控、回抽与分层 G-code 脚本  |
 +---------------------------------------------------------------+
 ```
 
 ---
 
-## Project Structure
+## 4. 项目结构
 
 ```
 moonslicer/
-├── types.mbt            # Slicer configuration, surface types, error definitions
-├── geom.mbt             # 2D/3D vectors, segments, Polygon2, ExPolygon topology tree
-├── stl.mbt              # IEEE 754 float32 decoder, Binary & ASCII STL parser
-├── slice.mbt            # Triangle-plane intersection and topological loop stitching
-├── offset.mbt           # Angle bisector offsetting, clearance clamping & suppression
-├── surface.mbt          # Cross-layer surface classification engine
-├── infill.mbt           # 45°/135° scanline infill generator with hole clipping
-├── gcode.mbt            # Stadium bead calculus & Marlin/RepRap G-code synthesis
-├── pipeline.mbt         # End-to-end slicing orchestrator and mesh inspection
-├── cmd/main/            # CLI executable (slice / info / help)
-├── fixtures/            # Standard test models (calibration cube, dual-hole collision STL, etc.)
-├── examples/            # Interactive HTML5 Canvas toolpath visualizer
-└── docs/                # Mathematical derivations & architecture specification
-    └── architecture.md  # Comprehensive technical whitepaper
+├── types.mbt            # 切片配置参数、表面枚举类型、错误定义
+├── geom.mbt             # 2D/3D 几何向量、线段求交、Polygon2、ExPolygon 拓扑树
+├── stl.mbt              # IEEE 754 float32 解码、Binary/ASCII STL 流式解析器
+├── slice.mbt            # 三角形截面求交与拓扑线段链式闭环重构
+├── offset.mbt           # 角平分线偏置算法、多孔间隙分析与碰撞消解引擎
+├── surface.mbt          # 跨层表面分类引擎 (TopSolid / BottomSolid / InternalSparse)
+├── infill.mbt           # 45°/135° 奇偶交替扫描线填充生成器 (带内孔避空)
+├── gcode.mbt            # 跑道截面挤出量微积分计算与 G-code 代码合成器
+├── pipeline.mbt         # 端到端切片流程编排器与模型统计评估
+├── cmd/main/            # 独立命令行工具 CLI (slice / info / help)
+├── fixtures/            # 标准测试模型库 (校准立方体、薄壁双孔干涉构件等)
+├── examples/            # HTML5 Canvas 交互式刀路可视化工具
+└── docs/                # 计算几何数学模型与架构设计白皮书
+    └── architecture.md  # 详细算法推导与工程设计文档
 ```
 
 ---
 
-## Getting Started
+## 5. 快速上手
 
-### Prerequisites
+### 环境要求
+- [MoonBit 编译器工具链](https://www.moonbitlang.com/)（推荐版本 `>= v0.1.20260920`）
 
-- [MoonBit CLI Toolchain](https://www.moonbitlang.com/) (version `>= v0.1.20260920`)
-
-### Building and Testing
-
+### 编译与测试
 ```bash
-# Static type checking
+# 执行静态类型推导与语法检查
 moon check
 
-# Verify WebAssembly target compatibility
+# 验证 WebAssembly 目标架构兼容性
 moon check --target wasm
 moon check --target wasm-gc
 
-# Execute full test suite (26 unit & integration tests)
+# 运行全套 26 项白盒与集成测试
 moon test
 
-# Format check
+# 代码格式化规范检查
 moon fmt --check
 ```
 
 ---
 
-## Command-Line Interface (CLI)
+## 6. 命令行工具 (CLI)
 
-MoonSlicer provides a standalone command-line tool supporting model inspection and toolpath slicing.
+MoonSlicer 提供了开箱即用的命令行工具，支持三维模型元数据审视与切片代码生成。
 
-### 1. Model Inspection (`info`)
+### 6.1 模型信息审视 (`info`)
 
-Inspect mesh vertex/facet counts, bounding box dimensions, and estimated layer counts:
+读取 STL 文件并输出面片数量、三维尺寸与预估层数：
 
 ```bash
 moon run cmd/main -- info -i fixtures/dual_holes_collision.stl
 ```
 
-Output:
+输出示例：
 ```
 Reading STL file: fixtures/dual_holes_collision.stl (5597 bytes)...
 ----------------------------------------
@@ -188,9 +187,9 @@ Mesh Inspection Report:
 ----------------------------------------
 ```
 
-### 2. Slicing Model to G-code (`slice`)
+### 6.2 执行切片生成 G-code (`slice`)
 
-Slice an STL model with customizable print parameters:
+针对指定模型执行全流程切片，支持自定义层高、壁数、填充率与打印速度：
 
 ```bash
 moon run cmd/main -- slice -i fixtures/dual_holes_collision.stl -o output.gcode \
@@ -204,7 +203,7 @@ moon run cmd/main -- slice -i fixtures/dual_holes_collision.stl -o output.gcode 
   --speed 60.0
 ```
 
-Output:
+输出示例：
 ```
 Loading model from: fixtures/dual_holes_collision.stl...
 Parsing mesh (5597 bytes)...
@@ -223,46 +222,46 @@ Slicing Completed Successfully!
 
 ---
 
-## Interactive Visualizer
+## 7. 交互式可视化工具 (Visualizer)
 
-MoonSlicer includes an out-of-the-box HTML5 Canvas toolpath visualizer located at [`examples/visualizer.html`](examples/visualizer.html).
+项目在 [`examples/visualizer.html`](examples/visualizer.html) 中内置了基于 HTML5 Canvas 的跨平台刀路可视化工具：
 
-- **Zero Dependencies**: Directly open `examples/visualizer.html` in any modern web browser without a local web server.
-- **Layer-by-Layer Scrubbing**: Interactive slider to inspect individual print layers or scrub through the print progression.
-- **Color-Coded Paths**:
-  - Outer Perimeters: Red
-  - Hole Perimeters: Orange
-  - Inner Perimeters: Green
-  - Solid Infill (Top & Bottom shells): Cyan
-  - Internal Sparse Infill: Yellow
-  - Non-print Travel Moves (G0): Dashed Gray
-- **Clearance HUD**: Real-time display of active clearance events, layer height, filament consumption, and estimated print duration.
+- **零依赖即开即用**：直接双击在任意主流浏览器（Chrome、Edge、Safari、Firefox）中打开，无需配置本地 Web 服务。
+- **逐层审视与动画播放**：支持拖拽滑块切换观察任意单层刀路，或以设定速率自动播放打印行进动画。
+- **多色分层呈现**：
+  - 红色：外壁轮廓（Outer Perimeter）
+  - 橙色：内孔轮廓（Hole Perimeter）
+  - 绿色：内部外壁（Inner Perimeter）
+  - 青色：顶底层密实填充（Solid Infill）
+  - 黄色：内部轻量化稀疏填充（Sparse Infill）
+  - 灰色虚线：空载快速移动（G0 Travel）
+- **实时状态 HUD**：实时显示当前层高、耗材累计消耗、预估耗时以及碰撞消解事件统计。
 
 ---
 
-## Technical Specifications & Roadmap
+## 8. 技术规格与路线图 (Specifications & Roadmap)
 
-### Supported Specifications
+### 当前支持的技术规格
 
-| Domain | Supported Feature Set |
+| 维度 | 当前功能支持 |
 | :--- | :--- |
-| **Input Format** | Watertight 2-manifold STL (Binary IEEE 754 float32 and ASCII formats) |
-| **Geometry** | Arbitrary closed planar polygons, multi-island contours, and nested multi-hole topologies |
-| **Perimeters** | Inward & outward normal bisector offset with miter limit clamping, clearance clamping, and wall suppression |
-| **Infill** | 45°/135° alternating rectilinear infill with automatic interior-hole parity clipping |
-| **Extrusion** | Stadium bead cross-section volumetric flow calculus with absolute E coordinates |
-| **Firmware** | Standard Marlin, RepRap, and Klipper compatible G-code output |
+| **输入模型格式** | 严格 2-流形闭合三角形网格（Binary IEEE 754 与 ASCII 格式 STL） |
+| **拓扑几何支持** | 任意平面封闭多边形、单层多独立岛屿、多层嵌套内孔 |
+| **轮廓偏置机制** | 双向角平分线法向量偏置，支持间隙场分析、自适应截断与薄壁多层壁抑制 |
+| **内部填充样式** | 45°/135° 奇偶交替线性扫描线填充，支持内孔全自动射线避空 |
+| **挤出微积分模型** | 扁平跑道截面（Stadium Cross-section）物理微积分，绝对坐标 E 轴推进 |
+| **固件格式输出** | 标准 Marlin / RepRap / Klipper 兼容 G-code |
 
-### Roadmap
+### 后续演进路线图 (Roadmap)
 
-- [ ] Support generation system (Tree and linear contact supports)
-- [ ] Non-planar and conformal infill geometries (Gyroid, Honeycomb, Concentric)
-- [ ] Curvature-based adaptive layer height
-- [ ] Seam placement strategies (Rear, Sharpest Corner, Scarf Joint)
-- [ ] Multi-extruder toolchanger support
+- [ ] 支撑结构自动生成系统（有机树状支撑与平面接触网格支撑）
+- [ ] 丰富更多填充几何模式（3D 陀螺体 Gyroid、六边形蜂窝 Honeycomb、同心圆等）
+- [ ] 沿 Z 轴按几何表面曲率梯度自适应的可变层高（Adaptive Layer Height）
+- [ ] 轮廓起针接缝智能隐蔽策略（最锐角对齐、随机对齐、平滑围巾接缝）
+- [ ] 多材料与多喷头（MMU / Toolchanger）工作流支持
 
 ---
 
-## License
+## 9. 开源协议
 
-MoonSlicer is licensed under the [Apache-2.0 License](LICENSE).
+本项目采用 [Apache-2.0](LICENSE) 开源协议。
