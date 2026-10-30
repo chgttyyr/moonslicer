@@ -50,10 +50,14 @@ moonslicer/
 ├── cmd/main/            # 命令行工具 CLI (slice / info / help)
 ├── fixtures/            # 校准立方体、带通孔方块、多岛屿、双孔碰撞等标准测试模型
 ├── examples/            # HTML5 Canvas 交互式多岛屿、内孔与碰撞消解刀路可视化工具
-└── docs/                # 计算几何数学模型、碰撞消解算法与 PrusaSlicer 对比白皮书
+├── docs/                # 计算几何数学模型、架构设计白皮书与结项验收自查报告
+│   ├── architecture.md  # 算法推导、碰撞消解机制与 PrusaSlicer 全维度对比
+│   └── ACCEPTANCE.md    # 黑客松结项验收自查总表与复现清单
+└── fixtures/            # 校准立方体、带通孔方块、多岛屿、双孔碰撞等标准测试模型
 ```
 
-详细数学推导、碰撞消解原理与 PrusaSlicer 全维度对比见：[docs/architecture.md](docs/architecture.md)。
+- 详细数学推导、碰撞消解原理与 PrusaSlicer 全维度对比见：[docs/architecture.md](docs/architecture.md)。
+- 项目结项与验收自查报告见：[docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ---
 
