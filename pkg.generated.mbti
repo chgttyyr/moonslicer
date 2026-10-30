@@ -20,9 +20,17 @@ pub fn classify_layer(Int32, Int32, SlicerConfig) -> SurfaceType
 
 pub fn format_f3(Double) -> String
 
+pub fn generate_expolygon_concentric_infill(ExPolygon, Double, Double) -> Array[Segment2]
+
+pub fn generate_expolygon_grid_infill(ExPolygon, Double, Double, Double) -> Array[Segment2]
+
+pub fn generate_expolygon_infill(ExPolygon, InfillPattern, Double, Double, Int32, Double) -> Array[Segment2]
+
 pub fn generate_expolygon_perimeters(ExPolygon, Int32, Double) -> ExPolygonPerimeters
 
 pub fn generate_expolygon_rectilinear_infill(ExPolygon, Double, Double, Double) -> Array[Segment2]
+
+pub fn generate_expolygon_triangles_infill(ExPolygon, Double, Double, Double) -> Array[Segment2]
 
 pub fn generate_gcode(Array[SliceLayer], SlicerConfig, bed_center_x? : Double, bed_center_y? : Double) -> GCodeResult
 
@@ -87,13 +95,34 @@ pub(all) struct ExPolygonPerimeters {
   collisions : Array[OffsetCollisionEvent]
 } derive(@debug.Debug)
 
+pub(all) enum FilamentMaterial {
+  PLA
+  PETG
+  ABS
+  TPU
+} derive(Eq, @debug.Debug)
+pub fn FilamentMaterial::density(Self) -> Double
+pub impl Show for FilamentMaterial
+
 pub(all) struct GCodeResult {
   gcode : String
   total_filament_mm : Double
+  total_filament_grams : Double
+  estimated_cost : Double
   total_layers : Int32
   estimated_print_time_sec : Double
+  travel_time_sec : Double
+  extrusion_time_sec : Double
   total_collisions_resolved : Int32
 } derive(@debug.Debug)
+
+pub(all) enum InfillPattern {
+  Rectilinear
+  Grid
+  Triangles
+  Concentric
+} derive(Eq, @debug.Debug)
+pub impl Show for InfillPattern
 
 pub(all) struct Mesh3 {
   triangles : Array[Triangle3]
@@ -134,8 +163,20 @@ pub fn Polygon2::ensure_ccw(Self) -> Self
 pub fn Polygon2::ensure_cw(Self) -> Self
 pub fn Polygon2::intersects_polygon(Self, Self) -> Bool
 pub fn Polygon2::is_ccw(Self) -> Bool
+pub fn Polygon2::nearest_vertex_idx(Self, Vec2) -> Int32
 pub fn Polygon2::new(Array[Vec2]) -> Self
 pub fn Polygon2::reverse(Self) -> Self
+pub fn Polygon2::rotate_start(Self, Int32) -> Self
+pub fn Polygon2::sharpest_corner_idx(Self) -> Int32
+pub fn Polygon2::simplify(Self, Double) -> Self
+
+pub(all) enum SeamMode {
+  Nearest
+  Aligned
+  SharpestCorner
+  Random
+} derive(Eq, @debug.Debug)
+pub impl Show for SeamMode
 
 pub(all) struct Segment2 {
   p1 : Vec2
@@ -164,9 +205,17 @@ pub(all) struct SlicerConfig {
   top_solid_layers : Int32
   infill_density : Double
   infill_angle : Double
+  infill_pattern : InfillPattern
+  seam_mode : SeamMode
+  material : FilamentMaterial
+  filament_cost_per_kg : Double
   filament_diameter : Double
   nozzle_temp : Int32
   bed_temp : Int32
+  fan_speed : Int32
+  bridge_fan_speed : Int32
+  bridge_speed : Double
+  bridge_flow_ratio : Double
   print_speed : Double
   solid_infill_speed : Double
   travel_speed : Double

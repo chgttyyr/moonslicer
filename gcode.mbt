@@ -3,12 +3,16 @@
 /// Implements PrusaSlicer-compatible multi-island, hole perimeters, and solid infill.
 
 ///|
-/// Formatted G-code result containing the output string and slicing statistics.
+/// Formatted G-code result containing the output string and comprehensive physical slicing statistics.
 pub(all) struct GCodeResult {
   gcode : String
   total_filament_mm : Double
+  total_filament_grams : Double
+  estimated_cost : Double
   total_layers : Int32
   estimated_print_time_sec : Double
+  travel_time_sec : Double
+  extrusion_time_sec : Double
   total_collisions_resolved : Int32
 } derive(Debug)
 
@@ -78,8 +82,12 @@ pub fn generate_gcode(
 ) -> GCodeResult {
   let sb = StringBuilder()
   let mut current_e = 0.0
-  let mut total_time_sec = 0.0
+  let mut total_travel_sec = 0.0
+  let mut total_extrusion_sec = 0.0
   let mut total_collisions = 0
+
+  let mut current_pos_x = bed_center_x
+  let mut current_pos_y = bed_center_y
 
   // Header comments
   sb.write_string("; ==========================================\n")
@@ -88,8 +96,9 @@ pub fn generate_gcode(
   sb.write_string("; Layer Height: \{config.layer_height} mm\n")
   sb.write_string("; Nozzle Line Width: \{config.line_width} mm\n")
   sb.write_string("; Wall Count: \{config.wall_count}\n")
-  sb.write_string("; Bottom Solid Layers: \{config.bottom_solid_layers}\n")
-  sb.write_string("; Top Solid Layers: \{config.top_solid_layers}\n")
+  sb.write_string("; Infill Pattern: \{config.infill_pattern}\n")
+  sb.write_string("; Seam Mode: \{config.seam_mode}\n")
+  sb.write_string("; Material: \{config.material}\n")
   sb.write_string("; Infill Density: \{config.infill_density * 100.0}%\n")
   sb.write_string("; Target Bed Center: X\{bed_center_x} Y\{bed_center_y}\n")
   sb.write_string("; ==========================================\n\n")
@@ -103,6 +112,7 @@ pub fn generate_gcode(
   sb.write_string("M190 S\{config.bed_temp} ; wait for bed temp\n")
   sb.write_string("M109 S\{config.nozzle_temp} ; wait for extruder temp\n")
   sb.write_string("G28 ; home all axes\n")
+  sb.write_string("M106 S\{config.fan_speed} ; enable cooling fan\n")
   sb.write_string("G92 E0 ; reset extruder position\n")
   sb.write_string("G1 Z0.300 F3000 ; lift nozzle\n")
   sb.write_string("G1 X10.000 Y10.000 F6000 ; move to prime start\n")
@@ -111,6 +121,7 @@ pub fn generate_gcode(
 
   let default_print_feedrate = (config.print_speed * 60.0).to_int()
   let solid_infill_feedrate = (config.solid_infill_speed * 60.0).to_int()
+  let bridge_feedrate = (config.bridge_speed * 60.0).to_int()
   let travel_feedrate = (config.travel_speed * 60.0).to_int()
   let retract_feedrate = (config.retract_speed * 60.0).to_int()
 
@@ -129,13 +140,6 @@ pub fn generate_gcode(
     sb.write_string("; Z: \{format_f3(layer_z)}\n")
     sb.write_string("; LAYER_TYPE: \{layer_surface}\n")
     sb.write_string("G0 Z\{format_f3(layer_z)} F\{travel_feedrate}\n")
-
-    // Alternate infill angle 45 and 135 degrees
-    let infill_angle = if layer_idx % 2 == 0 {
-      config.infill_angle
-    } else {
-      config.infill_angle + 90.0
-    }
 
     let expolys = if !layer.expolygons.is_empty() {
       layer.expolygons
@@ -161,15 +165,38 @@ pub fn generate_gcode(
         )
       }
 
-      // 1a. Outer walls
+      // 1a. Outer walls with seam placement
       for wall_idx, wall in perims.outer_walls {
-        let pts = wall.points
-        if pts.length() < 3 {
+        let pts_raw = wall.points
+        if pts_raw.length() < 3 {
           continue
         }
 
+        // Apply SeamMode
+        let seam_idx = match config.seam_mode {
+          SharpestCorner => wall.sharpest_corner_idx()
+          Nearest =>
+            wall.nearest_vertex_idx(
+              Vec2::new(
+                current_pos_x - bed_center_x,
+                current_pos_y - bed_center_y,
+              ),
+            )
+          Aligned => wall.nearest_vertex_idx(Vec2::new(0.0, 100.0))
+          Random => (layer_idx * 17 + wall_idx * 31) % pts_raw.length()
+        }
+        let aligned_wall = wall.rotate_start(seam_idx)
+        let pts = aligned_wall.points
+
         let start_x = pts[0].x + bed_center_x
         let start_y = pts[0].y + bed_center_y
+        let travel_dist = Vec2::new(current_pos_x, current_pos_y).distance(
+          Vec2::new(start_x, start_y),
+        )
+        total_travel_sec += travel_dist / config.travel_speed
+        current_pos_x = start_x
+        current_pos_y = start_y
+
         sb.write_string(
           "G0 X\{format_f3(start_x)} Y\{format_f3(start_y)} F\{travel_feedrate}\n",
         )
@@ -193,26 +220,51 @@ pub fn generate_gcode(
             config.filament_diameter,
           )
           current_e += delta_e
-          total_time_sec += move_dist / config.print_speed
+          total_extrusion_sec += move_dist / config.print_speed
 
           let nx = next.x + bed_center_x
           let ny = next.y + bed_center_y
+          current_pos_x = nx
+          current_pos_y = ny
+
           sb.write_string(
             "G1 X\{format_f3(nx)} Y\{format_f3(ny)} E\{format_f3(current_e)} F\{default_print_feedrate} \{wall_type_label}\n",
           )
         }
       }
 
-      // 1b. Hole walls
+      // 1b. Hole walls with seam placement
       for _hole_idx, hwalls in perims.hole_walls {
         for _wall_idx, hwall in hwalls {
-          let pts = hwall.points
-          if pts.length() < 3 {
+          let pts_raw = hwall.points
+          if pts_raw.length() < 3 {
             continue
           }
 
+          let seam_idx = match config.seam_mode {
+            SharpestCorner => hwall.sharpest_corner_idx()
+            Nearest =>
+              hwall.nearest_vertex_idx(
+                Vec2::new(
+                  current_pos_x - bed_center_x,
+                  current_pos_y - bed_center_y,
+                ),
+              )
+            Aligned => hwall.nearest_vertex_idx(Vec2::new(0.0, 100.0))
+            Random => (layer_idx * 13 + _wall_idx * 19) % pts_raw.length()
+          }
+          let aligned_hwall = hwall.rotate_start(seam_idx)
+          let pts = aligned_hwall.points
+
           let start_x = pts[0].x + bed_center_x
           let start_y = pts[0].y + bed_center_y
+          let travel_dist = Vec2::new(current_pos_x, current_pos_y).distance(
+            Vec2::new(start_x, start_y),
+          )
+          total_travel_sec += travel_dist / config.travel_speed
+          current_pos_x = start_x
+          current_pos_y = start_y
+
           sb.write_string(
             "G0 X\{format_f3(start_x)} Y\{format_f3(start_y)} F\{travel_feedrate}\n",
           )
@@ -230,10 +282,13 @@ pub fn generate_gcode(
               config.filament_diameter,
             )
             current_e += delta_e
-            total_time_sec += move_dist / config.print_speed
+            total_extrusion_sec += move_dist / config.print_speed
 
             let nx = next.x + bed_center_x
             let ny = next.y + bed_center_y
+            current_pos_x = nx
+            current_pos_y = ny
+
             sb.write_string(
               "G1 X\{format_f3(nx)} Y\{format_f3(ny)} E\{format_f3(current_e)} F\{default_print_feedrate} ; TYPE: Hole perimeter\n",
             )
@@ -244,36 +299,58 @@ pub fn generate_gcode(
       // 2. Generate infill lines within infill boundary
       match perims.infill_boundary {
         Some(ib) => {
-          let (density, print_feedrate, speed_val, infill_label) = match
+          let is_bridge = island_surface == BottomSolid && layer_idx > 0
+          if is_bridge {
+            sb.write_string(
+              "M106 S\{config.bridge_fan_speed} ; bridge fan boost\n",
+            )
+          }
+
+          let (density, print_feedrate, speed_val, pattern_to_use, infill_label) = match
             island_surface {
             TopSolid =>
               (
                 1.0,
                 solid_infill_feedrate,
                 config.solid_infill_speed,
+                InfillPattern::Rectilinear,
                 "; TYPE: Top solid infill",
               )
             BottomSolid =>
-              (
-                1.0,
-                solid_infill_feedrate,
-                config.solid_infill_speed,
-                "; TYPE: Bottom solid infill",
-              )
+              if is_bridge {
+                (
+                  1.0,
+                  bridge_feedrate,
+                  config.bridge_speed,
+                  InfillPattern::Rectilinear,
+                  "; TYPE: Bridge infill",
+                )
+              } else {
+                (
+                  1.0,
+                  solid_infill_feedrate,
+                  config.solid_infill_speed,
+                  InfillPattern::Rectilinear,
+                  "; TYPE: Bottom solid infill",
+                )
+              }
             InternalSparse =>
               (
                 config.infill_density,
                 default_print_feedrate,
                 config.print_speed,
+                config.infill_pattern,
                 "; TYPE: Internal infill",
               )
           }
 
-          let infill_lines = generate_expolygon_rectilinear_infill(
+          let infill_lines = generate_expolygon_infill(
             ib,
+            pattern_to_use,
             density,
             config.line_width,
-            infill_angle,
+            layer_idx,
+            config.infill_angle,
           )
 
           for seg in infill_lines {
@@ -282,22 +359,44 @@ pub fn generate_gcode(
             let p2x = seg.p2.x + bed_center_x
             let p2y = seg.p2.y + bed_center_y
 
+            let travel_dist = Vec2::new(current_pos_x, current_pos_y).distance(
+              Vec2::new(p1x, p1y),
+            )
+            total_travel_sec += travel_dist / config.travel_speed
+            current_pos_x = p1x
+            current_pos_y = p1y
+
             sb.write_string(
               "G0 X\{format_f3(p1x)} Y\{format_f3(p1y)} F\{travel_feedrate}\n",
             )
 
             let move_dist = seg.length()
+            let flow_scale = if is_bridge {
+              config.bridge_flow_ratio
+            } else {
+              1.0
+            }
             let delta_e = calculate_delta_e(
-              move_dist,
-              config.line_width,
-              current_h,
-              config.filament_diameter,
-            )
+                move_dist,
+                config.line_width,
+                current_h,
+                config.filament_diameter,
+              ) *
+              flow_scale
             current_e += delta_e
-            total_time_sec += move_dist / speed_val
+            total_extrusion_sec += move_dist / speed_val
+
+            current_pos_x = p2x
+            current_pos_y = p2y
 
             sb.write_string(
               "G1 X\{format_f3(p2x)} Y\{format_f3(p2y)} E\{format_f3(current_e)} F\{print_feedrate} \{infill_label}\n",
+            )
+          }
+
+          if is_bridge {
+            sb.write_string(
+              "M106 S\{config.fan_speed} ; restore standard fan\n",
             )
           }
         }
@@ -323,13 +422,29 @@ pub fn generate_gcode(
   sb.write_string("G90 ; absolute coordinates\n")
   sb.write_string("G1 X0.000 Y200.000 F6000 ; present print\n")
   sb.write_string("M84 ; disable stepper motors\n")
+
+  // Volumetric & physical mass calculations
+  let fil_radius_cm = config.filament_diameter * 0.5 * 0.1 // mm to cm
+  let fil_area_cm2 = 3.141592653589793 * fil_radius_cm * fil_radius_cm
+  let fil_len_cm = current_e * 0.1
+  let vol_cm3 = fil_area_cm2 * fil_len_cm
+  let filament_grams = vol_cm3 * config.material.density()
+  let est_cost = filament_grams / 1000.0 * config.filament_cost_per_kg
+  let total_time_sec = total_travel_sec + total_extrusion_sec
+
   sb.write_string("; Total Filament Used: \{format_f3(current_e)} mm\n")
+  sb.write_string("; Total Filament Mass: \{format_f3(filament_grams)} g\n")
+  sb.write_string("; Estimated Print Cost: \{format_f3(est_cost)}\n")
 
   {
     gcode: sb.to_string(),
     total_filament_mm: current_e,
+    total_filament_grams: filament_grams,
+    estimated_cost: est_cost,
     total_layers: layers.length(),
     estimated_print_time_sec: total_time_sec,
+    travel_time_sec: total_travel_sec,
+    extrusion_time_sec: total_extrusion_sec,
     total_collisions_resolved: total_collisions,
   }
 }

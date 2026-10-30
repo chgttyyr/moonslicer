@@ -25,7 +25,7 @@ fn print_usage() -> Unit {
     "  -o <path>              Output G-code file path (default: output.gcode)",
   )
   println("  --layer-height <mm>    Layer height in millimeters (default: 0.2)")
-  println("  --initial-height <mm>  First layer height in mm (default: 0.3)")
+  println("  --initial-height <mm>  First layer height in mm (default: 0.28)")
   println("  --line-width <mm>      Extrusion line width in mm (default: 0.4)")
   println("  --walls <count>        Number of perimeter walls (default: 2)")
   println("  --bottom-solid <count> Number of bottom solid layers (default: 3)")
@@ -34,7 +34,19 @@ fn print_usage() -> Unit {
     "  --density <ratio>      Infill density from 0.0 to 1.0 (default: 0.2)",
   )
   println(
-    "  --speed <mm/s>         Print movement speed in mm/s (default: 60.0)",
+    "  --pattern <name>       Infill pattern: rectilinear, grid, triangles, concentric (default: rectilinear)",
+  )
+  println(
+    "  --seam <mode>          Seam placement mode: sharpest, nearest, aligned, random (default: sharpest)",
+  )
+  println(
+    "  --material <name>      Filament material: pla, petg, abs, tpu (default: pla)",
+  )
+  println(
+    "  --cost-per-kg <cost>   Filament cost per kilogram (default: 100.0)",
+  )
+  println(
+    "  --speed <mm/s>         Print movement speed in mm/s (default: 50.0)",
   )
   println(
     "  --solid-speed <mm/s>   Solid infill movement speed in mm/s (default: 40.0)",
@@ -126,13 +138,17 @@ fn run_slice(args : Array[String]) -> Unit {
   let mut input_path = ""
   let mut output_path = "output.gcode"
   let mut layer_height = 0.2
-  let mut initial_height = 0.3
+  let mut initial_height = 0.28
   let mut line_width = 0.4
   let mut walls = 2
   let mut bottom_solid = 3
   let mut top_solid = 3
   let mut density = 0.2
-  let mut speed = 60.0
+  let mut pattern_name = "rectilinear"
+  let mut seam_name = "sharpest"
+  let mut mat_name = "pla"
+  let mut cost_per_kg = 100.0
+  let mut speed = 50.0
   let mut solid_speed = 40.0
   let mut travel_speed = 120.0
   let mut bed_x = 100.0
@@ -152,7 +168,7 @@ fn run_slice(args : Array[String]) -> Unit {
       layer_height = parse_double_arg(args[i + 1], 0.2)
       i += 2
     } else if arg == "--initial-height" && i + 1 < n {
-      initial_height = parse_double_arg(args[i + 1], 0.3)
+      initial_height = parse_double_arg(args[i + 1], 0.28)
       i += 2
     } else if arg == "--line-width" && i + 1 < n {
       line_width = parse_double_arg(args[i + 1], 0.4)
@@ -169,8 +185,20 @@ fn run_slice(args : Array[String]) -> Unit {
     } else if arg == "--density" && i + 1 < n {
       density = parse_double_arg(args[i + 1], 0.2)
       i += 2
+    } else if arg == "--pattern" && i + 1 < n {
+      pattern_name = args[i + 1]
+      i += 2
+    } else if arg == "--seam" && i + 1 < n {
+      seam_name = args[i + 1]
+      i += 2
+    } else if arg == "--material" && i + 1 < n {
+      mat_name = args[i + 1]
+      i += 2
+    } else if arg == "--cost-per-kg" && i + 1 < n {
+      cost_per_kg = parse_double_arg(args[i + 1], 100.0)
+      i += 2
     } else if arg == "--speed" && i + 1 < n {
-      speed = parse_double_arg(args[i + 1], 60.0)
+      speed = parse_double_arg(args[i + 1], 50.0)
       i += 2
     } else if arg == "--solid-speed" && i + 1 < n {
       solid_speed = parse_double_arg(args[i + 1], 40.0)
@@ -195,6 +223,36 @@ fn run_slice(args : Array[String]) -> Unit {
     return
   }
 
+  let pattern : @moonslicer.InfillPattern = if pattern_name == "grid" {
+    Grid
+  } else if pattern_name == "triangles" {
+    Triangles
+  } else if pattern_name == "concentric" {
+    Concentric
+  } else {
+    Rectilinear
+  }
+
+  let seam_mode : @moonslicer.SeamMode = if seam_name == "nearest" {
+    Nearest
+  } else if seam_name == "aligned" {
+    Aligned
+  } else if seam_name == "random" {
+    Random
+  } else {
+    SharpestCorner
+  }
+
+  let material : @moonslicer.FilamentMaterial = if mat_name == "petg" {
+    PETG
+  } else if mat_name == "abs" {
+    ABS
+  } else if mat_name == "tpu" {
+    TPU
+  } else {
+    PLA
+  }
+
   let mut config = @moonslicer.SlicerConfig::default()
   config = {
     ..config,
@@ -205,6 +263,10 @@ fn run_slice(args : Array[String]) -> Unit {
     bottom_solid_layers: bottom_solid,
     top_solid_layers: top_solid,
     infill_density: density,
+    infill_pattern: pattern,
+    seam_mode,
+    material,
+    filament_cost_per_kg: cost_per_kg,
     print_speed: speed,
     solid_infill_speed: solid_speed,
     travel_speed,
@@ -222,7 +284,7 @@ fn run_slice(args : Array[String]) -> Unit {
           "Mesh: \{stats.triangle_count} facets, \{stats.width}x\{stats.depth}x\{stats.height} mm",
         )
         println(
-          "Slicing layers (height: \{layer_height} mm, infill: \{density * 100.0}%)...",
+          "Slicing layers (height: \{layer_height} mm, pattern: \{pattern}, seam: \{seam_mode})...",
         )
 
         let result = @moonslicer.slice_mesh_to_gcode(
@@ -241,6 +303,8 @@ fn run_slice(args : Array[String]) -> Unit {
         println("  Total Layers:       \{result.total_layers}")
         println("  Collisions Resolved:\{result.total_collisions_resolved}")
         println("  Filament Extruded:  \{result.total_filament_mm} mm")
+        println("  Filament Mass:      \{result.total_filament_grams} g")
+        println("  Estimated Cost:     ¥\{result.estimated_cost}")
         println(
           "  Est. Print Time:    \{result.estimated_print_time_sec / 60.0} min",
         )

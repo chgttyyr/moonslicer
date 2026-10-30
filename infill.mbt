@@ -262,3 +262,145 @@ pub fn generate_expolygon_rectilinear_infill(
 
   infill_segments
 }
+
+///|
+/// Generate Grid infill: prints dual orthogonal scanlines on every layer.
+pub fn generate_expolygon_grid_infill(
+  expoly : ExPolygon,
+  density : Double,
+  line_width : Double,
+  base_angle : Double,
+) -> Array[Segment2] {
+  if density <= 0.001 {
+    return []
+  }
+  let effective_density = density * 0.5
+  let segs1 = generate_expolygon_rectilinear_infill(
+    expoly, effective_density, line_width, base_angle,
+  )
+  let segs2 = generate_expolygon_rectilinear_infill(
+    expoly,
+    effective_density,
+    line_width,
+    base_angle + 90.0,
+  )
+  let combined : Array[Segment2] = []
+  for s in segs1 {
+    combined.push(s)
+  }
+  for s in segs2 {
+    combined.push(s)
+  }
+  combined
+}
+
+///|
+/// Generate Triangles infill: prints 3 sets of scanlines at 0, 60, and 120 degrees to form triangular lattices.
+pub fn generate_expolygon_triangles_infill(
+  expoly : ExPolygon,
+  density : Double,
+  line_width : Double,
+  base_angle : Double,
+) -> Array[Segment2] {
+  if density <= 0.001 {
+    return []
+  }
+  let effective_density = density / 3.0
+  let segs1 = generate_expolygon_rectilinear_infill(
+    expoly, effective_density, line_width, base_angle,
+  )
+  let segs2 = generate_expolygon_rectilinear_infill(
+    expoly,
+    effective_density,
+    line_width,
+    base_angle + 60.0,
+  )
+  let segs3 = generate_expolygon_rectilinear_infill(
+    expoly,
+    effective_density,
+    line_width,
+    base_angle + 120.0,
+  )
+  let combined : Array[Segment2] = []
+  for s in segs1 {
+    combined.push(s)
+  }
+  for s in segs2 {
+    combined.push(s)
+  }
+  for s in segs3 {
+    combined.push(s)
+  }
+  combined
+}
+
+///|
+/// Generate Concentric infill: nested inward offsets from perimeter towards polygon center.
+pub fn generate_expolygon_concentric_infill(
+  expoly : ExPolygon,
+  density : Double,
+  line_width : Double,
+) -> Array[Segment2] {
+  let segments : Array[Segment2] = []
+  if density <= 0.001 {
+    return segments
+  }
+  let spacing = line_width / density
+  let mut current_poly = expoly.contour
+
+  for _ring = 0; _ring < 200; _ring = _ring + 1 {
+    match offset_polygon_inward(current_poly, spacing) {
+      Some(next_poly) => {
+        let pts = next_poly.points
+        let m = pts.length()
+        if m >= 3 {
+          for i = 0; i < m; i = i + 1 {
+            let p1 = pts[i]
+            let p2 = pts[(i + 1) % m]
+            let mid = p1.add(p2).scale(0.5)
+            if expoly.contains_point(mid) {
+              segments.push(Segment2::new(p1, p2))
+            }
+          }
+        }
+        current_poly = next_poly
+      }
+      None => break
+    }
+  }
+
+  segments
+}
+
+///|
+/// Universal infill dispatcher generating toolpath segments based on the selected InfillPattern.
+pub fn generate_expolygon_infill(
+  expoly : ExPolygon,
+  pattern : InfillPattern,
+  density : Double,
+  line_width : Double,
+  layer_idx : Int32,
+  base_angle : Double,
+) -> Array[Segment2] {
+  if density <= 0.001 {
+    return []
+  }
+  match pattern {
+    Rectilinear => {
+      let angle = if layer_idx % 2 == 0 {
+        base_angle
+      } else {
+        base_angle + 90.0
+      }
+      generate_expolygon_rectilinear_infill(expoly, density, line_width, angle)
+    }
+    Grid =>
+      generate_expolygon_grid_infill(expoly, density, line_width, base_angle)
+    Triangles =>
+      generate_expolygon_triangles_infill(
+        expoly, density, line_width, base_angle,
+      )
+    Concentric =>
+      generate_expolygon_concentric_infill(expoly, density, line_width)
+  }
+}

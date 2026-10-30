@@ -353,6 +353,152 @@ pub fn Polygon2::centroid(self : Polygon2) -> Vec2 {
 }
 
 ///|
+/// Rotate polygon vertex array cyclically so points[0] becomes the vertex at start_idx.
+pub fn Polygon2::rotate_start(self : Polygon2, start_idx : Int32) -> Polygon2 {
+  let n = self.points.length()
+  if n <= 1 {
+    return self
+  }
+  let s = (start_idx % n + n) % n
+  if s == 0 {
+    return self
+  }
+  let new_pts : Array[Vec2] = []
+  for i = 0; i < n; i = i + 1 {
+    new_pts.push(self.points[(s + i) % n])
+  }
+  Polygon2::new(new_pts)
+}
+
+///|
+/// Find the index of the vertex with the sharpest convex corner (minimum interior angle).
+/// Used by SeamMode::SharpestCorner to hide seam zits at natural edges.
+pub fn Polygon2::sharpest_corner_idx(self : Polygon2) -> Int32 {
+  let n = self.points.length()
+  if n <= 2 {
+    return 0
+  }
+  let is_ccw = self.is_ccw()
+  let mut sharpest_idx = 0
+  let mut min_cross = 1.0e9
+
+  for i = 0; i < n; i = i + 1 {
+    let prev = self.points[(i - 1 + n) % n]
+    let curr = self.points[i]
+    let next = self.points[(i + 1) % n]
+
+    let v1 = curr.sub(prev).normalize()
+    let v2 = next.sub(curr).normalize()
+
+    let dot = v1.dot(v2)
+    let cross = v1.cross(v2)
+
+    let is_convex = if is_ccw { cross > 1.0e-4 } else { cross < -1.0e-4 }
+    if is_convex {
+      if dot < min_cross {
+        min_cross = dot
+        sharpest_idx = i
+      }
+    }
+  }
+
+  sharpest_idx
+}
+
+///|
+/// Find the index of the vertex closest to target in Euclidean distance.
+pub fn Polygon2::nearest_vertex_idx(self : Polygon2, target : Vec2) -> Int32 {
+  let n = self.points.length()
+  if n == 0 {
+    return 0
+  }
+  let mut best_idx = 0
+  let mut min_d_sq = self.points[0].distance_sq(target)
+  for i = 1; i < n; i = i + 1 {
+    let d_sq = self.points[i].distance_sq(target)
+    if d_sq < min_d_sq {
+      min_d_sq = d_sq
+      best_idx = i
+    }
+  }
+  best_idx
+}
+
+///|
+/// Helper for Ramer-Douglas-Peucker recursion on a cyclic sub-chain between start_idx and end_idx.
+fn rdp_chain(
+  pts : Array[Vec2],
+  start_idx : Int32,
+  end_idx : Int32,
+  eps : Double,
+  kept : Array[Bool],
+) -> Unit {
+  let n = pts.length()
+  let count = (end_idx - start_idx + n) % n
+  if count <= 1 {
+    return
+  }
+  let seg = Segment2::new(pts[start_idx], pts[end_idx])
+  let mut max_dist = 0.0
+  let mut best_i = -1
+
+  for step = 1; step < count; step = step + 1 {
+    let curr_i = (start_idx + step) % n
+    let d = seg.distance_to_point(pts[curr_i])
+    if d > max_dist {
+      max_dist = d
+      best_i = curr_i
+    }
+  }
+
+  if max_dist > eps && best_i >= 0 {
+    kept[best_i] = true
+    rdp_chain(pts, start_idx, best_i, eps, kept)
+    rdp_chain(pts, best_i, end_idx, eps, kept)
+  }
+}
+
+///|
+/// Ramer-Douglas-Peucker (RDP) polygon simplification algorithm.
+/// Reduces collinear and jitter vertices within perpendicular distance epsilon.
+pub fn Polygon2::simplify(self : Polygon2, epsilon : Double) -> Polygon2 {
+  let n = self.points.length()
+  if n <= 3 || epsilon <= 1.0e-9 {
+    return self
+  }
+
+  let mut max_d = 0.0
+  let mut split_idx = 1
+  for i = 1; i < n; i = i + 1 {
+    let d = self.points[0].distance(self.points[i])
+    if d > max_d {
+      max_d = d
+      split_idx = i
+    }
+  }
+
+  let kept = Array::make(n, false)
+  kept[0] = true
+  kept[split_idx] = true
+
+  rdp_chain(self.points, 0, split_idx, epsilon, kept)
+  rdp_chain(self.points, split_idx, 0, epsilon, kept)
+
+  let res : Array[Vec2] = []
+  for i = 0; i < n; i = i + 1 {
+    if kept[i] {
+      res.push(self.points[i])
+    }
+  }
+
+  if res.length() >= 3 {
+    Polygon2::new(res)
+  } else {
+    self
+  }
+}
+
+///|
 /// Check whether this polygon completely contains another polygon.
 /// A smaller polygon can never contain a larger one, and all vertices of the other must lie inside.
 pub fn Polygon2::contains_polygon(self : Polygon2, other : Polygon2) -> Bool {
