@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://mooncakes.io/docs/chgttyyr/moonslicer"><img src="https://img.shields.io/badge/Mooncakes-chgttyyr%2Fmoonslicer-orange.svg" alt="Mooncakes"></a>
   <img src="https://img.shields.io/badge/Language-MoonBit-purple.svg" alt="MoonBit">
   <img src="https://img.shields.io/badge/Architecture-Zero--FFI%20Pure%20MoonBit-brightgreen.svg" alt="Zero FFI">
   <img src="https://img.shields.io/badge/Target-Native%20%7C%20Wasm-blue.svg" alt="Targets">
