@@ -27,9 +27,14 @@ jobs:
         run: |
           moon check
 
-      - name: Run Test Suite (26 Tests)
+      - name: Code Formatting Check
+        run: |
+          moon fmt --check
+
+      - name: Run Test Suite (47 Tests - Native & Wasm)
         run: |
           moon test
+          moon test --target wasm-gc
 
       - name: Build Executable Artifacts
         run: |
