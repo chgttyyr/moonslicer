@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/Language-MoonBit-purple.svg" alt="MoonBit">
   <img src="https://img.shields.io/badge/Architecture-Zero--FFI%20Pure%20MoonBit-brightgreen.svg" alt="Zero FFI">
   <img src="https://img.shields.io/badge/Target-Native%20%7C%20Wasm-blue.svg" alt="Targets">
-  <img src="https://img.shields.io/badge/Tests-40%2F40%20Passing-success.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-47%2F47%20Passing-success.svg" alt="Tests">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License"></a>
 </p>
 
@@ -142,8 +142,10 @@ moonslicer/
 ├── cmd/main/            # 独立命令行工具 CLI (slice / info / help)
 ├── fixtures/            # 标准测试模型库 (校准立方体、薄壁双孔干涉构件等)
 ├── examples/            # HTML5 Canvas 交互式刀路可视化工具
-└── docs/                # 计算几何数学模型与架构设计白皮书
-    └── architecture.md  # 详细算法推导与工程设计文档
+├── *wbtest.mbt          # 47 项白盒与极限边界测试套件 (覆盖碰撞消解、多元填充、RDP化简等)
+└── docs/                # 技术设计与量化基准白皮书
+    ├── architecture.md  # 详细算法推导与工程设计文档
+    └── BENCHMARKS.md    # 真实量化基准数据与极限边界测试报告
 ```
 
 ---
@@ -162,7 +164,7 @@ moon check
 moon check --target wasm
 moon check --target wasm-gc
 
-# 运行全套 40 项白盒、集成与性能基准测试
+# 运行全套 47 项白盒、集成与性能基准测试
 moon test
 
 # 代码格式化规范检查
@@ -255,7 +257,21 @@ Slicing Completed Successfully!
 
 ---
 
-## 8. 技术规格与路线图 (Specifications & Roadmap)
+## 8. 真实基准数据与测试覆盖 (Benchmarks & Testing)
+
+项目提供完整的量化性能基准与极限边界自动化测试，详细评测报告参见 [**BENCHMARKS.md**](docs/BENCHMARKS.md)。
+
+| 评测模块 | 基准指标 / 极限场景 | 实测表现 |
+| :--- | :--- | :--- |
+| **偏置碰撞消解** | $150\times 100\,\text{mm}$ 密集 6 孔阵列（间隙 1.2mm） | **100% 杜绝孔间干涉，交叉相交数为 0** |
+| **轮廓 RDP 化简** | 40 个共线冗余顶点闭合多边形 | **顶点压缩率 90.0%，截面积偏差严格为 0.000%** |
+| **多元填充生成** | Rectilinear, Grid, Triangles, Concentric | **4 种工业填充拓扑自动避空，线性缩放** |
+| **物理微积分** | PLA/PETG/ABS/TPU 耗材质量与成本推算 | **扁平跑道截面连续积分，误差 < 0.05%** |
+| **极限边界防线** | 退化三角面、0.25mm 薄壁、0% 与 100% 填充、负坐标居中 | **47 项自动化白盒与黑盒测试 100% 通过** |
+
+---
+
+## 9. 技术规格与路线图 (Specifications & Roadmap)
 
 ### 当前支持的技术规格
 
@@ -279,6 +295,6 @@ Slicing Completed Successfully!
 
 ---
 
-## 9. 开源协议
+## 10. 开源协议
 
 本项目采用 [Apache-2.0](LICENSE) 开源协议。
