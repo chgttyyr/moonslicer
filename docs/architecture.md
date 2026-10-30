@@ -1,4 +1,4 @@
-# MoonSlicer 架构与计算几何算法实现文档 (PrusaSlicer 对齐版)
+# MoonSlicer 架构设计与计算几何算法技术白皮书
 
 本文档详细阐述 **MoonSlicer**（纯 MoonBit 实现的 3D 打印切片引擎）的核心计算几何算法、多孔偏置碰撞消解机制、适用模型边界及与 PrusaSlicer 的全维度对比。
 
@@ -100,7 +100,7 @@ $$P'_i = P_i + d \cdot \frac{n_1 + n_2}{1 + n_1 \cdot n_2}$$
 
 ---
 
-### 2.4 重点：偏置碰撞处理机制 (Offset Collision Resolution)
+### 2.4 偏置碰撞处理机制 (Offset Collision Resolution)
 
 #### A. 为什么单靠“边反转检查”无法解决相邻孔碰撞？
 单多边形的边反转检查公式 $(P'_{i+1} - P'_i) \cdot (P_{i+1} - P_i) \le 0$ **只能检测单个多边形自身的内折萎缩**。

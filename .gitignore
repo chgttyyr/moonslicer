@@ -9,3 +9,5 @@ fixtures/test-out*
 *.gcode
 *申报书*.md
 *proposal*
+*ACCEPTANCE*.md
+*验收*.md
