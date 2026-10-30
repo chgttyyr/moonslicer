@@ -109,3 +109,25 @@ moon run cmd/main -- slice -i fixtures/dual_holes_collision.stl -o output.gcode 
 | **理论白皮书** | [`docs/architecture.md`](architecture.md) | 数学推导、碰撞消解机制与 PrusaSlicer 全维度对比 |
 | **CI 自动化脚本** | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions 持续集成自动化工作流 |
 | **开源协议** | [`LICENSE`](../LICENSE) | Apache-2.0 许可证 |
+
+---
+
+## 5. 当前工程边界与未实现功能诚实核查（实事求是，绝不夸大）
+
+为保证项目技术验收与评审答辩的求真务实，项目团队对当前阶段（v0.1）**尚未实现**的功能与工程边界进行逐项诚实声明：
+
+1. **未实现支撑结构系统（Supports）**：
+   - *当前现状*：未包含树状支撑（Organic Support）或水平接触面网格支撑算法。
+   - *影响边界*：当前引擎适合具有自支撑特性（悬垂角度 $\le 45^\circ$）、水平搭桥（Bridge）跨度合理或通过无需支撑设计优化的工业零件。对于大倾角倒挂悬垂模型，需在 CAD 建模阶段添加辅助工艺台。
+2. **填充样式仅限线性网格（Rectilinear）**：
+   - *当前现状*：完整实现了 45° 与 135° 奇偶交替线性扫描线填充，并保证内孔自动断针避空；但**未实现** 3D 陀螺体（Gyroid）、六边形蜂窝（Honeycomb）、闪电支撑（Lightning）或希尔伯特曲线填充。
+3. **跨层表面分类粒度（Surface Classification Granularity）**：
+   - *当前现状*：表面分类在**岛屿级特征点采样**与**扫描线段中点采样**上比对相邻层实体支撑；**未引入**全套 2D 多边形布尔差集算子（Clipper Difference），即单个形状复杂的连续实体在内部未拆分为互不连通的异构填充子多边形。
+4. **偏置算法实现机制（Offset Mechanism）**：
+   - *当前现状*：基于角平分线法向量偏移、斜接截断（Miter Limit）、边反转检测与几何距离场碰撞消解（Clamping & Wall Suppression）；**并非** Clipper2 等全局整数布尔多边形库。在规则凸多边形、标准通孔与薄壁模型上表现优异，但在极度锯齿凹陷或自相交退化轮廓上可能出现局部轮廓萎缩或后置裁剪。
+5. **固定层高切片（Fixed Layer Height）**：
+   - *当前现状*：支持独立配置第一层高度与后续常规层高；**未实现**沿 Z 轴按模型曲率梯度自动调整的可变层高（Adaptive Layer Height）。
+6. **接缝隐蔽对齐与高级动态控制（Seam & Dynamics）**：
+   - *当前现状*：走针起笔点固定由轮廓多边形首顶点起跳，**未实现**最锐角对齐（Nearest/Sharpest Seam）或围巾接缝（Scarf Seam）；G-code 依赖固定进给速度，未实现固件级压力提前（Pressure Advance）参数动态注入。
+7. **单工具头限制（Single Extruder）**：
+   - *当前现状*：仅支持单喷嘴（T0）单材料打印工作流，未实现换色与多挤出机（MMU）擦拭塔。
